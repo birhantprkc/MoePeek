@@ -10,6 +10,7 @@ final class PopupPanelController {
     private var panel: PopupPanel?
     private var dismissMonitor: PopupDismissMonitor?
     private var copyShortcutDismissTask: Task<Void, Never>?
+    private var panelMoveObserver: NSObjectProtocol?
 
     private let coordinator: TranslationCoordinator
     private let ttsCoordinator: TTSCoordinator?
@@ -28,6 +29,12 @@ final class PopupPanelController {
         self.settingsController = settingsController
     }
 
+    deinit {
+        if let observer = panelMoveObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
     func showAtCursor() {
         let initialSize = setupPanel()
         guard let panel else { return }
@@ -39,16 +46,22 @@ final class PopupPanelController {
             return
         }
 
-        let cursorPos = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorPos) })
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-        else { return }
-        let frame = PopupPositioning.panelFrame(
-            contentSize: initialSize,
-            cursor: cursorPos,
-            screen: screen
-        )
+        let frame: NSRect
+        if let origin = restoredOrigin(for: initialSize) {
+            frame = NSRect(origin: origin, size: initialSize)
+        } else {
+            let cursorPos = NSEvent.mouseLocation
+            guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorPos) })
+                ?? NSScreen.main
+                ?? NSScreen.screens.first
+            else { return }
+            frame = PopupPositioning.panelFrame(
+                contentSize: initialSize,
+                cursor: cursorPos,
+                screen: screen
+            )
+        }
+        panel.suppressNextMoveSave += 1
         panel.setFrame(frame, display: true)
         // Non-activating: don't steal focus from the user's active app.
         // The panel will accept key events (and ⌘1...⌘9 copy shortcuts) once the user clicks
@@ -62,16 +75,22 @@ final class PopupPanelController {
         let initialSize = setupPanel()
         guard let panel else { return }
 
-        let cursorPos = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorPos) })
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-        else { return }
-        let visibleFrame = screen.visibleFrame
-        let origin = NSPoint(
-            x: visibleFrame.midX - initialSize.width / 2,
-            y: visibleFrame.midY - initialSize.height / 2
-        )
+        let origin: NSPoint
+        if let saved = restoredOrigin(for: initialSize) {
+            origin = saved
+        } else {
+            let cursorPos = NSEvent.mouseLocation
+            guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorPos) })
+                ?? NSScreen.main
+                ?? NSScreen.screens.first
+            else { return }
+            let visibleFrame = screen.visibleFrame
+            origin = NSPoint(
+                x: visibleFrame.midX - initialSize.width / 2,
+                y: visibleFrame.midY - initialSize.height / 2
+            )
+        }
+        panel.suppressNextMoveSave += 1
         panel.setFrame(NSRect(origin: origin, size: initialSize), display: true)
         // Input mode needs the app activated so the panel can receive keyboard events.
         // Without this, makeKeyAndOrderFront alone won't route keystrokes to our panel
@@ -90,6 +109,10 @@ final class PopupPanelController {
         copyShortcutDismissTask = nil
         dismissMonitor?.stop()
         dismissMonitor = nil
+        if let observer = panelMoveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            panelMoveObserver = nil
+        }
         ttsCoordinator?.stop()
         panel?.contentView = nil
         panel?.close()
@@ -142,9 +165,31 @@ final class PopupPanelController {
             hostingView.sizingOptions = []
             newPanel.contentView = hostingView
             panel = newPanel
+            panelMoveObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didMoveNotification,
+                object: newPanel,
+                queue: .main
+            ) { [weak self, weak newPanel] _ in
+                guard let panel = newPanel else { return }
+                MainActor.assumeIsolated {
+                    self?.handlePanelMove(panel)
+                }
+            }
         }
 
         return initialSize
+    }
+
+    private func handlePanelMove(_ panel: PopupPanel) {
+        if panel.suppressNextMoveSave > 0 {
+            panel.suppressNextMoveSave -= 1
+            return
+        }
+        guard Defaults[.popupRememberPosition] else { return }
+        let f = panel.frame
+        Defaults[.popupLastTopLeftX] = Double(f.origin.x)
+        Defaults[.popupLastTopLeftY] = Double(f.origin.y + f.height)
+        Defaults[.popupHasSavedPosition] = true
     }
 
     private func copyResultFromShortcut(atDisplayIndex index: Int) -> Bool {
@@ -157,6 +202,43 @@ final class PopupPanelController {
             self?.dismiss()
         }
         return true
+    }
+
+    /// Returns the persisted last-dragged origin if the feature is enabled and a position has been
+    /// saved. The persisted point is the top-left corner, so we derive the NSWindow origin
+    /// (bottom-left) by subtracting the current panel height — this keeps the visual position
+    /// anchored even when the panel's width or height differs from the previously saved session.
+    /// The result is clamped to the visible frame of the screen containing the saved top-left so a
+    /// resized-larger panel doesn't spill off the edge.
+    private func restoredOrigin(for size: CGSize) -> NSPoint? {
+        guard Defaults[.popupRememberPosition], Defaults[.popupHasSavedPosition] else { return nil }
+        let topLeft = NSPoint(
+            x: Defaults[.popupLastTopLeftX],
+            y: Defaults[.popupLastTopLeftY]
+        )
+        let origin = NSPoint(x: topLeft.x, y: topLeft.y - size.height)
+        let candidate = NSRect(origin: origin, size: size)
+
+        // Prefer the screen that contained the saved top-left point; otherwise any screen the
+        // candidate rect still overlaps. If neither holds (e.g. external display disconnected),
+        // fall back to cursor/center logic.
+        guard let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(topLeft) })
+            ?? NSScreen.screens.first(where: { $0.visibleFrame.intersects(candidate) })
+        else { return nil }
+
+        return clampOrigin(origin, size: size, into: screen.visibleFrame)
+    }
+
+    private func clampOrigin(_ origin: NSPoint, size: CGSize, into bounds: NSRect) -> NSPoint {
+        let padding: CGFloat = 8
+        let minX = bounds.minX + padding
+        let maxX = bounds.maxX - size.width - padding
+        let minY = bounds.minY + padding
+        let maxY = bounds.maxY - size.height - padding
+        // If the screen is smaller than the panel along an axis, fall back to the min edge.
+        let clampedX = maxX >= minX ? min(max(origin.x, minX), maxX) : minX
+        let clampedY = maxY >= minY ? min(max(origin.y, minY), maxY) : minY
+        return NSPoint(x: clampedX, y: clampedY)
     }
 
     private func startDismissMonitor() {
