@@ -1,9 +1,11 @@
+import AppKit
 import Defaults
 import SwiftUI
 
 /// The SwiftUI content displayed inside the popup translation panel.
 struct PopupView: View {
     let coordinator: TranslationCoordinator
+    var onDismiss: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     @State private var editableText: String = ""
     @State private var expandedProviders: Set<String> = []
@@ -14,13 +16,21 @@ struct PopupView: View {
     @State private var inputHeight: CGFloat = CGFloat(Defaults[.popupInputHeight])
     @State private var containerHeight: CGFloat = CGFloat(Defaults[.popupDefaultHeight])
     @Default(.popupFontSize) private var fontSize
+    @Default(.popupFontName) private var fontName
 
     private let inputMinHeight: CGFloat = 36
     private let contentHorizontalPadding: CGFloat = 14
 
+    private var inputSixLineHeight: CGFloat {
+        let editorLineHeight = NSFont.popup(name: fontName, size: CGFloat(fontSize)).lineHeight
+        let hintLineHeight = NSFont.popup(name: fontName, size: max(CGFloat(fontSize - 4), 8)).lineHeight
+        return ceil(editorLineHeight * 6 + hintLineHeight + 8)
+    }
+
     private var maxInputHeight: CGFloat {
-        // Reserve 120pt for language bar + results; floor ensures drag range above inputMinHeight
-        max(containerHeight - 120, inputMinHeight + 24)
+        // Reserve 120pt for language bar + results, while capping the editor at six visible lines.
+        let availableHeight = max(containerHeight - 120, inputMinHeight)
+        return max(inputMinHeight, min(inputSixLineHeight, availableHeight))
     }
 
     var body: some View {
@@ -52,9 +62,7 @@ struct PopupView: View {
             }
         )
         .onChange(of: containerHeight) { _, _ in
-            let clamped = min(inputHeight, maxInputHeight)
-            guard clamped != inputHeight else { return }
-            inputHeight = clamped
+            clampInputHeightToAllowedRange()
         }
         .overlay(alignment: .bottomTrailing) {
             ResizeGripView()
@@ -79,6 +87,7 @@ struct PopupView: View {
             sourceLang = Defaults[.sourceLanguage]
             targetLang = coordinator.targetLanguage
             expandedProviders = Set(coordinator.activeSlots.map(\.id))
+            clampInputHeightToAllowedRange()
 
             if Defaults[.ttsAutoPlaySource],
                !coordinator.sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -91,9 +100,26 @@ struct PopupView: View {
         .onChange(of: coordinator.translationGeneration) { _, _ in
             expandedProviders = Set(coordinator.activeSlots.map(\.id))
         }
+        .onChange(of: coordinator.copiedProviderID) { _, providerID in
+            guard let providerID else { return }
+            expandedProviders.insert(providerID)
+        }
         .onChange(of: coordinator.providerStates) { _, newStates in
             handleAutoPlay(states: newStates)
         }
+    }
+
+    private var pinButton: some View {
+        Button {
+            coordinator.isPinned.toggle()
+        } label: {
+            Image(systemName: coordinator.isPinned ? "pin.fill" : "pin")
+                .font(.system(size: CGFloat(fontSize - 2)))
+                .foregroundStyle(coordinator.isPinned ? Color.accentColor : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(coordinator.isPinned ? "Unpin Popup" : "Pin Popup")
+        .background { InteractiveMarker() }
     }
 
     // MARK: - Active Content
@@ -116,6 +142,12 @@ struct PopupView: View {
                     sourceLanguage: coordinator.detectedLanguage ?? sourceLang,
                     onSubmit: {
                         coordinator.translate(editableText)
+                    },
+                    onCopyAndClose: {
+                        copySourceAndClose()
+                    },
+                    onContentHeightChange: { preferredHeight in
+                        expandInputHeightIfNeeded(for: preferredHeight)
                     }
                 )
                 .frame(height: inputHeight)
@@ -131,7 +163,7 @@ struct PopupView: View {
                     onDragEnd: { Defaults[.popupInputHeight] = Int(inputHeight) }
                 )
 
-                // Language bar + settings button
+                // Language bar + settings + pin
                 HStack(spacing: 4) {
                     LanguageBarView(
                         sourceLanguage: $sourceLang,
@@ -140,8 +172,8 @@ struct PopupView: View {
                         targetLanguage: $targetLang,
                         onSwap: {
                             let effectiveSource = sourceLang == "auto"
-                                ? (coordinator.detectedLanguage ?? targetLang)
-                                : sourceLang
+                            ? (coordinator.detectedLanguage ?? targetLang)
+                            : sourceLang
                             // When auto-detect has no result yet, effectiveSource falls back
                             // to targetLang and swap becomes a no-op
                             guard effectiveSource != targetLang else { return }
@@ -160,6 +192,8 @@ struct PopupView: View {
                     .buttonStyle(.plain)
                     .help("Open Settings")
                     .background { InteractiveMarker() }
+
+                    pinButton
                 }
                 .padding(.horizontal, contentHorizontalPadding)
                 .padding(.vertical, 4)
@@ -191,6 +225,11 @@ struct PopupView: View {
                                     state: state,
                                     targetLanguage: targetLang,
                                     isExpanded: expandedBinding(for: provider.id),
+                                    isCopyFeedbackActive: coordinator.copiedProviderID == provider.id,
+                                    copyFeedbackGeneration: coordinator.copyFeedbackGeneration,
+                                    onCopy: {
+                                        coordinator.copyResult(forProviderID: provider.id)
+                                    },
                                     onRetry: {
                                         coordinator.retryProvider(provider)
                                     }
@@ -219,6 +258,30 @@ struct PopupView: View {
                 }
             }
         )
+    }
+
+    private func clampInputHeightToAllowedRange() {
+        let clamped = min(max(inputHeight, inputMinHeight), maxInputHeight)
+        guard clamped != inputHeight else { return }
+        inputHeight = clamped
+    }
+
+    /// Reflow the input height to follow content. Grows up to `maxInputHeight` and
+    /// shrinks back down to the user-set baseline (persisted in `popupInputHeight`),
+    /// so deleting pasted long text reclaims the space.
+    private func expandInputHeightIfNeeded(for preferredHeight: CGFloat) {
+        let baseline = min(max(CGFloat(Defaults[.popupInputHeight]), inputMinHeight), maxInputHeight)
+        let targetHeight = min(max(preferredHeight, baseline), maxInputHeight)
+        guard abs(targetHeight - inputHeight) > 0.5 else { return }
+        inputHeight = targetHeight
+    }
+
+    private func copySourceAndClose() {
+        let source = editableText
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        guard NSPasteboard.general.setString(source, forType: .string) else { return }
+        onDismiss?()
     }
 
     private func handleAutoPlay(states: [String: TranslationCoordinator.ProviderState]) {
@@ -252,7 +315,6 @@ struct PopupView: View {
             tts.speak(text, language: targetLang)
         }
     }
-
 }
 
 // MARK: - Resize Grip

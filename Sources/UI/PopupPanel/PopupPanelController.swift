@@ -9,6 +9,7 @@ final class PopupPanelController {
 
     private var panel: PopupPanel?
     private var dismissMonitor: PopupDismissMonitor?
+    private var copyShortcutDismissTask: Task<Void, Never>?
 
     private let coordinator: TranslationCoordinator
     private let ttsCoordinator: TTSCoordinator?
@@ -31,6 +32,13 @@ final class PopupPanelController {
         let initialSize = setupPanel()
         guard let panel else { return }
 
+        // Coordinator auto-unpins on non-nil globalError via didSet, so checking isPinned alone is safe.
+        if coordinator.isPinned, panel.isVisible {
+            panel.orderFront(nil)
+            startDismissMonitor()
+            return
+        }
+
         let cursorPos = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorPos) })
             ?? NSScreen.main
@@ -43,6 +51,8 @@ final class PopupPanelController {
         )
         panel.setFrame(frame, display: true)
         // Non-activating: don't steal focus from the user's active app.
+        // The panel will accept key events (and ⌘1...⌘9 copy shortcuts) once the user clicks
+        // into it, since PopupPanel.canBecomeKey is true.
         panel.orderFront(nil)
 
         startDismissMonitor()
@@ -70,11 +80,14 @@ final class PopupPanelController {
         previouslyActiveApp = NSWorkspace.shared.frontmostApplication
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        panel.focusSourceInput()
 
         startDismissMonitor()
     }
 
     func dismiss() {
+        copyShortcutDismissTask?.cancel()
+        copyShortcutDismissTask = nil
         dismissMonitor?.stop()
         dismissMonitor = nil
         ttsCoordinator?.stop()
@@ -108,8 +121,14 @@ final class PopupPanelController {
 
         if panel == nil {
             let newPanel = PopupPanel(contentRect: NSRect(origin: .zero, size: initialSize))
+            newPanel.onCopyResultShortcut = { [weak self] index in
+                self?.copyResultFromShortcut(atDisplayIndex: index) ?? false
+            }
             let contentView = PopupView(
                 coordinator: coordinator,
+                onDismiss: { [weak self] in
+                    self?.dismiss()
+                },
                 onOpenSettings: { [weak self] in
                     self?.dismiss()
                     self?.settingsController?.showWindow()
@@ -128,9 +147,25 @@ final class PopupPanelController {
         return initialSize
     }
 
+    private func copyResultFromShortcut(atDisplayIndex index: Int) -> Bool {
+        guard coordinator.copyResult(atDisplayIndex: index) else { return false }
+
+        copyShortcutDismissTask?.cancel()
+        copyShortcutDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled else { return }
+            self?.dismiss()
+        }
+        return true
+    }
+
     private func startDismissMonitor() {
         guard let panel else { return }
-        dismissMonitor = PopupDismissMonitor(panel: panel) { [weak self] in
+        dismissMonitor?.stop()
+        dismissMonitor = PopupDismissMonitor(
+            panel: panel,
+            isPinned: { [weak self] in self?.coordinator.isPinned ?? false }
+        ) { [weak self] in
             self?.dismiss()
         }
         dismissMonitor?.start()

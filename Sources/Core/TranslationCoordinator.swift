@@ -26,7 +26,12 @@ final class TranslationCoordinator {
     private(set) var detectedLanguage: String?
     private(set) var targetLanguage: String = ""
     private(set) var providerStates: [String: ProviderState] = [:]
-    private(set) var globalError: String?
+    /// Setting a non-nil error also auto-unpins, so an error never appears in a frozen pinned panel.
+    private(set) var globalError: String? {
+        didSet {
+            if globalError != nil { isPinned = false }
+        }
+    }
     private(set) var detectionResult: DetectionResult?
     /// Snapshot of expanded provider slots for the current translation session.
     /// PopupView reads this instead of `registry.enabledSlots` to avoid recomputation during streaming.
@@ -34,10 +39,15 @@ final class TranslationCoordinator {
     /// Monotonically increasing counter; increments each time `translate()` is called.
     /// Used by PopupView to reset `expandedProviders` for subsequent translations.
     private(set) var translationGeneration: Int = 0
+    private(set) var copiedProviderID: String?
+    private(set) var copyFeedbackGeneration: Int = 0
+    /// Single source of truth for popup pin state. PopupView toggles, PopupPanelController reads.
+    var isPinned: Bool = false
 
     let registry: TranslationProviderRegistry
     private let permissionManager: PermissionManager
     private var activeTasks: [String: Task<Void, Never>] = [:]
+    private var copyFeedbackTask: Task<Void, Never>?
 
     init(permissionManager: PermissionManager, registry: TranslationProviderRegistry) {
         self.permissionManager = permissionManager
@@ -69,13 +79,21 @@ final class TranslationCoordinator {
 
     /// Triggered by OCR shortcut: screen capture → OCR → translate.
     func ocrAndTranslate() async {
+        guard permissionManager.isScreenRecordingGranted else {
+            phase = .active
+            sourceText = ""
+            globalError = String(localized: "Screen recording permission not granted. Open Settings to enable it.")
+            return
+        }
+
+        let previousPhase = phase
         phase = .grabbing
 
         do {
             let text = try await ScreenCaptureOCR.captureAndRecognize()
             translate(text)
-        } catch is OCRError {
-            phase = .idle
+        } catch OCRError.captureCancelled {
+            phase = previousPhase
         } catch {
             phase = .active
             sourceText = ""
@@ -98,6 +116,7 @@ final class TranslationCoordinator {
     /// Reset state and enter input mode (empty source input for manual typing).
     func prepareInputMode() {
         cancelAll()
+        clearCopyFeedback()
         globalError = nil
         sourceText = ""
         detectedLanguage = nil
@@ -120,6 +139,7 @@ final class TranslationCoordinator {
         }
 
         cancelAll()
+        clearCopyFeedback()
         globalError = nil
 
         sourceText = trimmed
@@ -182,8 +202,27 @@ final class TranslationCoordinator {
         activeTasks[provider.id] = task
     }
 
+    @discardableResult
+    func copyResult(atDisplayIndex index: Int) -> Bool {
+        guard activeSlots.indices.contains(index) else { return false }
+        return copyResult(forProviderID: activeSlots[index].id)
+    }
+
+    @discardableResult
+    func copyResult(forProviderID providerID: String) -> Bool {
+        guard let resultText = providerStates[providerID]?.copyableText,
+              !resultText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return false }
+
+        NSPasteboard.general.clearContents()
+        guard NSPasteboard.general.setString(resultText, forType: .string) else { return false }
+        showCopyFeedback(forProviderID: providerID)
+        return true
+    }
+
     func dismiss() {
         cancelAll()
+        clearCopyFeedback()
         phase = .idle
         sourceText = ""
         detectedLanguage = nil
@@ -192,6 +231,7 @@ final class TranslationCoordinator {
         globalError = nil
         detectionResult = nil
         activeSlots = []
+        isPinned = false
     }
 
     // MARK: - Computed Helpers
@@ -258,6 +298,26 @@ final class TranslationCoordinator {
             task.cancel()
         }
         activeTasks.removeAll()
+    }
+
+    private func showCopyFeedback(forProviderID providerID: String) {
+        copyFeedbackTask?.cancel()
+        copiedProviderID = providerID
+        copyFeedbackGeneration += 1
+
+        copyFeedbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            guard self?.copiedProviderID == providerID else { return }
+            self?.copiedProviderID = nil
+            self?.copyFeedbackTask = nil
+        }
+    }
+
+    private func clearCopyFeedback() {
+        copyFeedbackTask?.cancel()
+        copyFeedbackTask = nil
+        copiedProviderID = nil
     }
 
     /// Build language hints (BCP 47 codes) based on user's target/source language preferences.
@@ -327,5 +387,18 @@ final class TranslationCoordinator {
         }
 
         return preferred
+    }
+}
+
+private extension TranslationCoordinator.ProviderState {
+    var copyableText: String? {
+        switch self {
+        case let .streaming(partial):
+            partial
+        case let .completed(text):
+            text
+        case .waiting, .translating, .error:
+            nil
+        }
     }
 }
