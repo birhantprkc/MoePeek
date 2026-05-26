@@ -65,30 +65,46 @@ enum MenuBarIconStore {
             throw ImportError.copyFailed(error)
         }
 
+        cachedIcon = nil
         Defaults[.menuBarCustomIconRevision] += 1
         return destURL
     }
 
     static func removeCustomIcon() {
         removeCustomIconFiles()
+        cachedIcon = nil
         Defaults[.menuBarCustomIconRevision] += 1
     }
 
     /// Loads the custom icon sized for the menu bar, applying the template flag.
     /// Returns nil when no custom icon is present.
+    ///
+    /// Called from SwiftUI view bodies that may re-evaluate frequently, so the
+    /// decoded `NSImage` is cached and only re-read when the on-disk file changes
+    /// (tracked via `menuBarCustomIconRevision`) or the template flag flips.
     static func loadCustomIcon(isTemplate: Bool) -> NSImage? {
+        let revision = Defaults[.menuBarCustomIconRevision]
+        if let cached = cachedIcon, cached.revision == revision, cached.isTemplate == isTemplate {
+            return cached.image
+        }
         guard let url = currentCustomIconURL, let image = NSImage(contentsOf: url) else {
+            cachedIcon = nil
             return nil
         }
         image.size = NSSize(width: recommendedPointSize, height: recommendedPointSize)
         image.isTemplate = isTemplate
+        cachedIcon = (revision: revision, isTemplate: isTemplate, image: image)
         return image
     }
 
     // MARK: - Private
 
+    private static var cachedIcon: (revision: Int, isTemplate: Bool, image: NSImage)?
+
     private static var customIconDirectory: URL {
-        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            preconditionFailure("Application Support directory unavailable")
+        }
         return supportDir.appendingPathComponent("MoePeek", isDirectory: true)
     }
 
