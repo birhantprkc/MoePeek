@@ -1,3 +1,4 @@
+import AppKit
 import Defaults
 import Foundation
 import KeyboardShortcuts
@@ -136,6 +137,123 @@ extension KeyboardShortcuts.Name {
     static let ocrScreenshot = Self("ocrScreenshot", default: .init(.s, modifiers: .option))
     static let inputTranslation = Self("inputTranslation", default: .init(.a, modifiers: .option))
     static let clipboardTranslation = Self("clipboardTranslation", default: .init(.v, modifiers: .option))
+    static let swapLanguages: Self = {
+        let name = Self("swapLanguages", default: .init(.t, modifiers: .option))
+        // Clear legacy or default bindings that conflict with popup or global actions.
+        if let current = KeyboardShortcuts.getShortcut(for: name),
+           SwapLanguagesShortcut.isReserved(current) {
+            KeyboardShortcuts.setShortcut(nil, for: name)
+        }
+        KeyboardShortcuts.disable(name)
+        SwapLanguagesShortcut.restoreGlobalRegistrations()
+        return name
+    }()
+}
+
+/// Keeps the swap shortcut popup-local even though the package recorder uses global names.
+enum SwapLanguagesShortcut {
+    static let didChangeNotification = Notification.Name("SwapLanguagesShortcutDidChange")
+
+    private static let popupReservedNumberKeys: Set<KeyboardShortcuts.Key> = [
+        .one, .two, .three, .four, .five, .six, .seven, .eight, .nine,
+        .keypad1, .keypad2, .keypad3, .keypad4, .keypad5,
+        .keypad6, .keypad7, .keypad8, .keypad9,
+    ]
+
+    /// `PopupPanel.sendEvent` runs before `NSTextView`, so preserve standard editing and navigation.
+    private static let textEditingShortcuts: Set<KeyboardShortcuts.Shortcut> = [
+        .init(.a, modifiers: .command),
+        .init(.b, modifiers: .command),
+        .init(.c, modifiers: .command),
+        .init(.e, modifiers: .command),
+        .init(.f, modifiers: .command),
+        .init(.f, modifiers: [.command, .option]),
+        .init(.g, modifiers: .command),
+        .init(.g, modifiers: [.command, .shift]),
+        .init(.j, modifiers: .command),
+        .init(.i, modifiers: .command),
+        .init(.u, modifiers: .command),
+        .init(.v, modifiers: .command),
+        .init(.v, modifiers: [.command, .option, .shift]),
+        .init(.x, modifiers: .command),
+        .init(.z, modifiers: .command),
+        .init(.z, modifiers: [.command, .shift]),
+        .init(.leftArrow, modifiers: .command),
+        .init(.rightArrow, modifiers: .command),
+        .init(.upArrow, modifiers: .command),
+        .init(.downArrow, modifiers: .command),
+        .init(.leftArrow, modifiers: [.command, .shift]),
+        .init(.rightArrow, modifiers: [.command, .shift]),
+        .init(.upArrow, modifiers: [.command, .shift]),
+        .init(.downArrow, modifiers: [.command, .shift]),
+        .init(.leftArrow, modifiers: .option),
+        .init(.rightArrow, modifiers: .option),
+        .init(.leftArrow, modifiers: [.option, .shift]),
+        .init(.rightArrow, modifiers: [.option, .shift]),
+        .init(.delete, modifiers: .option),
+        .init(.deleteForward, modifiers: .option),
+        .init(.delete, modifiers: [.option, .shift]),
+        .init(.deleteForward, modifiers: [.option, .shift]),
+        .init(.delete, modifiers: .command),
+        .init(.deleteForward, modifiers: .command),
+        .init(.delete, modifiers: [.command, .shift]),
+        .init(.deleteForward, modifiers: [.command, .shift]),
+    ]
+
+    private static let globalShortcutNames: [KeyboardShortcuts.Name] = [
+        .translateSelection,
+        .ocrScreenshot,
+        .inputTranslation,
+        .clipboardTranslation,
+    ]
+
+    static var current: KeyboardShortcuts.Shortcut? {
+        KeyboardShortcuts.getShortcut(for: .swapLanguages)
+    }
+
+    static func recorderDidChange() {
+        reconcileRegistrations()
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+
+    static func reconcileRegistrations() {
+        KeyboardShortcuts.disable(.swapLanguages)
+        restoreGlobalRegistrations()
+    }
+
+    /// `KeyboardShortcuts` unregisters by key combination rather than by name. Re-enable
+    /// the app-wide shortcuts after disabling or reverting this popup-local binding so a
+    /// rejected collision cannot leave an existing global shortcut inactive.
+    static func restoreGlobalRegistrations() {
+        KeyboardShortcuts.enable(globalShortcutNames)
+    }
+
+    static func matches(_ event: NSEvent) -> Bool {
+        guard let current, let eventShortcut = KeyboardShortcuts.Shortcut(event: event) else {
+            return false
+        }
+        return eventShortcut == current
+    }
+
+    static func isReserved(_ shortcut: KeyboardShortcuts.Shortcut) -> Bool {
+        if shortcut.key == .return || shortcut.key == .keypadEnter || shortcut.key == .escape {
+            return true
+        }
+
+        if shortcut.modifiers == .command,
+           let key = shortcut.key,
+           popupReservedNumberKeys.contains(key) {
+            return true
+        }
+
+        if textEditingShortcuts.contains(shortcut) {
+            return true
+        }
+
+        return globalShortcutNames
+            .compactMap { KeyboardShortcuts.getShortcut(for: $0) }
+            .contains(shortcut)
+    }
 }
 
 // MARK: - User Defaults Keys
