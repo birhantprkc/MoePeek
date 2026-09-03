@@ -43,12 +43,24 @@ jobs:
           p12-password: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
 
       - name: Write Signing.xcconfig
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+          SPARKLE_ED_PUBLIC_KEY: ${{ secrets.SPARKLE_ED_PUBLIC_KEY }}
         run: |
+          SIGNING_IDENTITY_HASH=$(
+            security find-identity -v -p codesigning |
+              awk -v team="$DEVELOPMENT_TEAM" 'index($0, "(" team ")") { print $2; exit }'
+          )
+          if [ -z "$SIGNING_IDENTITY_HASH" ]; then
+            echo "::error::No valid code-signing identity found for the configured development team. Update the Prod signing certificate or team secret."
+            exit 1
+          fi
+
           cat > Configurations/Signing.xcconfig << EOF
           MOEPEEK_CODE_SIGN_STYLE = Manual
-          MOEPEEK_CODE_SIGN_IDENTITY = ${{ secrets.SIGNING_IDENTITY }}
-          MOEPEEK_DEVELOPMENT_TEAM = ${{ secrets.DEVELOPMENT_TEAM }}
-          SPARKLE_ED_PUBLIC_KEY = ${{ secrets.SPARKLE_ED_PUBLIC_KEY }}
+          MOEPEEK_CODE_SIGN_IDENTITY = $SIGNING_IDENTITY_HASH
+          MOEPEEK_DEVELOPMENT_TEAM = $DEVELOPMENT_TEAM
+          SPARKLE_ED_PUBLIC_KEY = $SPARKLE_ED_PUBLIC_KEY
           EOF
 
       - name: Resolve dependencies and generate project

@@ -10,7 +10,6 @@
 |--------|------|
 | `SIGNING_CERTIFICATE_P12` | 签名证书 .p12 文件的 base64 编码（如 `Apple Development` 或 `Developer ID Application`） |
 | `SIGNING_CERTIFICATE_PASSWORD` | 导出 .p12 时设置的密码 |
-| `SIGNING_IDENTITY` | 证书身份，如 `Apple Development: me@nahida.icu (3SX3NLLQK2)` |
 | `DEVELOPMENT_TEAM` | Apple Developer Team ID |
 | `SPARKLE_ED_PUBLIC_KEY` | Sparkle 更新验证用的 Ed25519 公钥 |
 | `SPARKLE_ED_PRIVATE_KEY` | 签名 appcast 条目用的 Ed25519 私钥 |
@@ -103,5 +102,5 @@ CI 会自动完成以下步骤：
 ### 更新后辅助功能/屏幕录制权限丢失
 
 - 检查 CI 日志中 "Verify code signature" 步骤，确认 `Authority` 包含签名身份且 `TeamIdentifier` 正确
-- 如果签名验证失败，检查 Prod 环境中 `SIGNING_CERTIFICATE_P12`、`SIGNING_CERTIFICATE_PASSWORD`、`SIGNING_IDENTITY`、`DEVELOPMENT_TEAM` 是否配置正确
+- 如果签名验证失败，检查 Prod 环境中 `SIGNING_CERTIFICATE_P12`、`SIGNING_CERTIFICATE_PASSWORD`、`DEVELOPMENT_TEAM` 是否配置正确
 - 证书过期后需要重新导出并更新 `SIGNING_CERTIFICATE_P12` secret
