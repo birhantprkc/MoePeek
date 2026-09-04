@@ -91,6 +91,42 @@ enum MarkdownSupport {
         return segments
     }
 
+    /// Strips Markdown syntax for providers that translate literal text. Attachment placeholders
+    /// are removed entirely because machine translation cannot preserve them.
+    static func plainText(from markdown: String) -> String {
+        let replacements: [(String, String)] = [
+            (#"!\[[^\]\n]*\]\([^)\s]+\)"#, ""),
+            (#"\[([^\]\n]+)\]\([^)\s]+\)"#, "$1"),
+            (#"(?m)^\s*(```|~~~).*$"#, ""),
+            (#"(?m)^#{1,6}\s+"#, ""),
+            (#"(?m)^(\s*)>\s?"#, "$1"),
+            (#"\*\*([^*\n]+)\*\*"#, "$1"),
+            (#"__([^_\n]+)__"#, "$1"),
+            (#"~~([^~\n]+)~~"#, "$1"),
+            (#"`([^`\n]+)`"#, "$1"),
+            (#"(?m)[ \t]+$"#, ""),
+            (#"\n{3,}"#, "\n\n"),
+        ]
+        var text = markdown
+        for (pattern, template) in replacements {
+            text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Removes captured-image placeholders, which mean nothing outside the app.
+    static func removingAttachmentPlaceholders(_ text: String) -> String {
+        let pattern = "[ \\t]?!\\[[^\\]\\n]*\\]\\(\(SourceAttachmentReference.scheme):[^)\\s]+\\)"
+        return text
+            .replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(?m)[ \t]+$"#, with: "", options: .regularExpression)
+    }
+
+    /// Speech synthesis must not read Markdown markers or placeholders aloud.
+    static func speakableText(_ text: String) -> String {
+        looksLikeMarkdown(text) ? plainText(from: text) : text
+    }
+
     /// LLM output uses single newlines as visual line breaks, but CommonMark folds them into
     /// spaces. Appends a hard break to plain lines followed by another plain line. Fenced code
     /// blocks and block constructs (lists, headings, tables) are left untouched.

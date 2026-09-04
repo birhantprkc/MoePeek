@@ -62,6 +62,23 @@ import Testing
         #expect(placeholder.url.absoluteString == original)
     }
 
+    @Test func plainTextStripsSyntaxAndAttachmentPlaceholders() {
+        let markdown = "## 标题\n\n**加粗** 和 [链接](https://example.com) ![img-1](moepeek-attachment:img-1)\n\n- `代码`"
+        #expect(MarkdownSupport.plainText(from: markdown) == "标题\n\n加粗 和 链接\n\n- 代码")
+        #expect(MarkdownSupport.plainText(from: "纯文本") == "纯文本")
+        #expect(MarkdownSupport.plainText(from: "![img-1](moepeek-attachment:img-1)").isEmpty)
+    }
+
+    @Test func removesAttachmentPlaceholdersForCopy() {
+        let text = "段落一 ![img-1](moepeek-attachment:img-1) 段落二\n\n![img-2](moepeek-attachment:img-2)\n\n![远程](https://example.com/a.png)"
+        #expect(MarkdownSupport.removingAttachmentPlaceholders(text) == "段落一 段落二\n\n\n\n![远程](https://example.com/a.png)")
+    }
+
+    @Test func speakableTextDropsMarkersOnlyForMarkdown() {
+        #expect(MarkdownSupport.speakableText("**加粗** ![img-1](moepeek-attachment:img-1)") == "加粗")
+        #expect(MarkdownSupport.speakableText("2*3*4 plain") == "2*3*4 plain")
+    }
+
     @Test func hardensSingleLineBreaksBetweenPlainLines() {
         #expect(MarkdownSupport.hardenLineBreaks("第一行\n第二行\n\n第三行") == "第一行  \n第二行\n\n第三行")
     }
