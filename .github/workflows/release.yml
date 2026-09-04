@@ -47,14 +47,20 @@ jobs:
           DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
           SPARKLE_ED_PUBLIC_KEY: ${{ secrets.SPARKLE_ED_PUBLIC_KEY }}
         run: |
-          SIGNING_IDENTITY_HASH=$(
-            security find-identity -v -p codesigning |
-              awk -v team="$DEVELOPMENT_TEAM" 'index($0, "(" team ")") { print $2; exit }'
+          SIGNING_IDENTITIES=$(
+            security find-identity -v -p codesigning signing_temp.keychain |
+              awk '$1 ~ /^[0-9]+\)$/ { print $2 }' |
+              sort -u
           )
-          if [ -z "$SIGNING_IDENTITY_HASH" ]; then
-            echo "::error::No valid code-signing identity found for the configured development team. Update the Prod signing certificate or team secret."
+          SIGNING_IDENTITY_COUNT=$(
+            printf '%s\n' "$SIGNING_IDENTITIES" |
+              awk 'NF { count++ } END { print count + 0 }'
+          )
+          if [ "$SIGNING_IDENTITY_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly one valid code-signing identity in the imported P12, found $SIGNING_IDENTITY_COUNT. Renew an expired certificate or export a P12 containing one certificate and its private key."
             exit 1
           fi
+          SIGNING_IDENTITY_HASH=$SIGNING_IDENTITIES
 
           cat > Configurations/Signing.xcconfig << EOF
           MOEPEEK_CODE_SIGN_STYLE = Manual

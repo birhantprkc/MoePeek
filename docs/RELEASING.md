@@ -27,6 +27,14 @@
 6. 粘贴到 GitHub Secret `SIGNING_CERTIFICATE_P12`
 7. 导出密码填入 GitHub Secret `SIGNING_CERTIFICATE_PASSWORD`
 
+导出前可用以下命令确认本机存在有效的代码签名 identity：
+
+```bash
+security find-identity -v -p codesigning
+```
+
+证书显示名末尾括号中的值不一定是 Team ID。Team ID 应以证书 Subject 的 `OU` 字段或 Apple Developer 账号中显示的 Team ID 为准，并填写到 `DEVELOPMENT_TEAM`。
+
 > **为什么需要签名？** macOS TCC 数据库通过代码签名身份追踪辅助功能和屏幕录制等权限。使用固定证书签名可确保用户更新应用后无需重新授权。
 
 #### 生成 Sparkle 密钥对
