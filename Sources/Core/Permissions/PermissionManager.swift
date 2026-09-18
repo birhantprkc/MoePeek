@@ -7,7 +7,7 @@ nonisolated(unsafe) private let axTrustedPromptKey = "AXTrustedCheckOptionPrompt
 /// Manages Accessibility and Screen Recording permission states with polling.
 @MainActor
 @Observable
-final class PermissionManager {
+final class PermissionManager: PermissionChecking {
     private(set) var isAccessibilityGranted = false
     private(set) var isScreenRecordingGranted = false
     private var pollTimer: Timer?
@@ -75,4 +75,10 @@ final class PermissionManager {
         pollTimer?.invalidate()
         pollTimer = nil
     }
+}
+
+@MainActor
+protocol PermissionChecking: AnyObject {
+    var isAccessibilityGranted: Bool { get }
+    var isScreenRecordingGranted: Bool { get }
 }

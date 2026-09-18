@@ -42,16 +42,6 @@ struct PopupView: View {
             case .idle:
                 EmptyView()
 
-            case .grabbing:
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Grabbing text…")
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, contentHorizontalPadding)
-                .padding(.vertical, contentHorizontalPadding)
-
             case .active:
                 activeContent
             }

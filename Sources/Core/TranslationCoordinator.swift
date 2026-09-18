@@ -5,10 +5,19 @@ import Defaults
 @MainActor
 @Observable
 final class TranslationCoordinator {
+    /// Tells an action entry point whether it should present a new popup.
+    enum ActionOutcome: Sendable, Equatable {
+        case present
+        case preserve
+
+        var shouldPresent: Bool {
+            self == .present
+        }
+    }
+
     /// Overall translation phase.
     enum Phase: Sendable {
         case idle
-        case grabbing
         case active
     }
 
@@ -48,13 +57,27 @@ final class TranslationCoordinator {
     var isPinned: Bool = false
 
     let registry: TranslationProviderRegistry
-    private let permissionManager: PermissionManager
+    private let permissionManager: any PermissionChecking
+    private let grabSelection: @MainActor () async -> RichSourceDocument?
+    private let captureOCR: @MainActor () async throws -> String
+    private let resolveSmart: @MainActor () async -> SmartTranslationResult
+    /// Invalidates capture actions that are still awaiting a result when a newer session starts.
+    private var actionToken = 0
     private var activeTasks: [String: Task<Void, Never>] = [:]
     private var copyFeedbackTask: Task<Void, Never>?
 
-    init(permissionManager: PermissionManager, registry: TranslationProviderRegistry) {
+    init(
+        permissionManager: any PermissionChecking,
+        registry: TranslationProviderRegistry,
+        grabSelection: @escaping @MainActor () async -> RichSourceDocument? = TextSelectionManager.grabSelectedDocument,
+        captureOCR: @escaping @MainActor () async throws -> String = ScreenCaptureOCR.captureAndRecognize,
+        resolveSmart: @escaping @MainActor () async -> SmartTranslationResult = { await SmartTranslationResolver.resolve() }
+    ) {
         self.permissionManager = permissionManager
         self.registry = registry
+        self.grabSelection = grabSelection
+        self.captureOCR = captureOCR
+        self.resolveSmart = resolveSmart
     }
 
     // MARK: - Public Actions
@@ -64,9 +87,9 @@ final class TranslationCoordinator {
     /// clipboard and manual-input fallbacks remain available when that permission is missing.
     @discardableResult
     func translateSmart() async -> SmartTranslationResult {
-        phase = .grabbing
-        let result = await SmartTranslationResolver.resolve()
-        guard !Task.isCancelled else { return .cancelled }
+        let requestToken = beginAction()
+        let result = await resolveSmart()
+        guard !Task.isCancelled, requestToken == actionToken else { return .cancelled }
 
         switch result {
         case let .selection(document), let .clipboard(document):
@@ -80,24 +103,26 @@ final class TranslationCoordinator {
     }
 
     /// Triggered by keyboard shortcut: grab selected text → translate.
-    func translateSelection() async {
+    @discardableResult
+    func translateSelection() async -> ActionOutcome {
+        let requestToken = beginAction()
         guard permissionManager.isAccessibilityGranted else {
             phase = .active
             sourceText = ""
             globalError = String(localized: "Accessibility permission not granted. Open Settings to enable it.")
-            return
+            return .present
         }
 
-        phase = .grabbing
-
-        guard let document = await TextSelectionManager.grabSelectedDocument() else {
-            phase = .active
-            sourceText = ""
-            globalError = String(localized: "No text selected. Select some text and try again.")
-            return
+        guard let document = await grabSelection(),
+              !document.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !Task.isCancelled,
+              requestToken == actionToken
+        else {
+            return .preserve
         }
 
         translate(document: document)
+        return .present
     }
 
     /// Triggered by the floating icon, which already holds the plain selection. With rich
@@ -112,26 +137,33 @@ final class TranslationCoordinator {
     }
 
     /// Triggered by OCR shortcut: screen capture → OCR → translate.
-    func ocrAndTranslate() async {
+    @discardableResult
+    func ocrAndTranslate() async -> ActionOutcome {
+        let requestToken = beginAction()
         guard permissionManager.isScreenRecordingGranted else {
             phase = .active
             sourceText = ""
             globalError = String(localized: "Screen recording permission not granted. Open Settings to enable it.")
-            return
+            return .present
         }
 
-        let previousPhase = phase
-        phase = .grabbing
-
         do {
-            let text = try await ScreenCaptureOCR.captureAndRecognize()
+            let text = try await captureOCR()
+            guard !Task.isCancelled, requestToken == actionToken else {
+                return .preserve
+            }
             translate(text)
+            return .present
         } catch OCRError.captureCancelled {
-            phase = previousPhase
+            return .preserve
+        } catch is CancellationError {
+            return .preserve
         } catch {
+            guard requestToken == actionToken else { return .preserve }
             phase = .active
             sourceText = ""
             globalError = String(localized: "OCR failed: \(error.localizedDescription)")
+            return .present
         }
     }
 
@@ -155,6 +187,7 @@ final class TranslationCoordinator {
 
     /// Reset state and enter input mode (empty source input for manual typing).
     func prepareInputMode() {
+        invalidatePendingAction()
         cancelAll()
         clearCopyFeedback()
         globalError = nil
@@ -186,6 +219,7 @@ final class TranslationCoordinator {
     }
 
     private func startTranslation(_ text: String, attachments: [String: SourceImageAttachment]) {
+        invalidatePendingAction()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             phase = .active
@@ -283,6 +317,7 @@ final class TranslationCoordinator {
     }
 
     func dismiss() {
+        invalidatePendingAction()
         cancelAll()
         clearCopyFeedback()
         phase = .idle
@@ -319,6 +354,15 @@ final class TranslationCoordinator {
     }
 
     // MARK: - Private
+
+    private func beginAction() -> Int {
+        actionToken &+= 1
+        return actionToken
+    }
+
+    private func invalidatePendingAction() {
+        actionToken &+= 1
+    }
 
     /// Markdown sources go to LLM providers verbatim with a preserve-formatting instruction;
     /// machine translation APIs get plain text because they cannot honor either.
