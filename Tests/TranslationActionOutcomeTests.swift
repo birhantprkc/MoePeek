@@ -164,6 +164,56 @@ import Testing
         #expect(coordinator.providerStates == newProviderStates)
     }
 
+    @Test func overlappingEmptyCapturesKeepIdleState() async {
+        var continuations: [CheckedContinuation<RichSourceDocument?, Never>] = []
+        let coordinator = makeCoordinator(grabSelection: {
+            await withCheckedContinuation { continuations.append($0) }
+        })
+        let first = Task { await coordinator.translateSelection() }
+        while continuations.count < 1 { await Task.yield() }
+        let second = Task { await coordinator.translateSelection() }
+        while continuations.count < 2 { await Task.yield() }
+
+        expectIdle(coordinator)
+        continuations[0].resume(returning: nil)
+        continuations[1].resume(returning: nil)
+        #expect(await first.value == .preserve)
+        #expect(await second.value == .preserve)
+        expectIdle(coordinator)
+    }
+
+    @Test func cancelledSmartCapturePreservesExistingInput() async {
+        var finish: CheckedContinuation<SmartTranslationResult, Never>?
+        let coordinator = makeCoordinator(resolveSmart: {
+            await withCheckedContinuation { finish = $0 }
+        })
+        coordinator.prepareInputMode()
+        let task = Task { await coordinator.translateSmart() }
+        while finish == nil { await Task.yield() }
+
+        expectActive(coordinator)
+        task.cancel()
+        finish?.resume(returning: .manualInput)
+        #expect(await task.value == .cancelled)
+        expectActive(coordinator)
+    }
+
+    @Test func staleSmartResultCannotReplaceNewInput() async {
+        var finish: CheckedContinuation<SmartTranslationResult, Never>?
+        let coordinator = makeCoordinator(resolveSmart: {
+            await withCheckedContinuation { finish = $0 }
+        })
+        let task = Task { await coordinator.translateSmart() }
+        while finish == nil { await Task.yield() }
+
+        coordinator.prepareInputMode()
+        finish?.resume(returning: .selection(.plain("obsolete selection")))
+        #expect(await task.value == .cancelled)
+        expectActive(coordinator)
+        #expect(coordinator.sourceText.isEmpty)
+        #expect(coordinator.providerStates.isEmpty)
+    }
+
     @Test func permissionErrorsRemainPresentable() async {
         let selectionCoordinator = makeCoordinator(accessibilityGranted: false)
         let selectionOutcome = await selectionCoordinator.translateSelection()
@@ -200,10 +250,16 @@ import Testing
         accessibilityGranted: Bool = true,
         screenRecordingGranted: Bool = true,
         grabSelection: @escaping @MainActor () async -> RichSourceDocument? = { nil },
-        captureOCR: @escaping @MainActor () async throws -> String = { throw OCRError.captureCancelled }
+        captureOCR: @escaping @MainActor () async throws -> String = { throw OCRError.captureCancelled },
+        resolveSmart: @escaping @MainActor () async -> SmartTranslationResult = { .cancelled }
     ) -> TranslationCoordinator {
         let provider = TestTranslationProvider()
-        let registry = TranslationProviderRegistry(providers: [provider])
+        let registry = TranslationProviderRegistry(
+            providers: [provider],
+            enabledProviderIDs: { [provider.id] },
+            providerOrder: { [] },
+            onDemandProviderIDs: { [] }
+        )
         let permissions = TestPermissionManager(
             accessibilityGranted: accessibilityGranted,
             screenRecordingGranted: screenRecordingGranted
@@ -214,7 +270,7 @@ import Testing
             registry: registry,
             grabSelection: grabSelection,
             captureOCR: captureOCR,
-            enabledProviderSlots: { [provider] }
+            resolveSmart: resolveSmart
         )
     }
 

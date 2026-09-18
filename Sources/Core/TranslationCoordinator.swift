@@ -18,7 +18,6 @@ final class TranslationCoordinator {
     /// Overall translation phase.
     enum Phase: Sendable {
         case idle
-        case grabbing
         case active
     }
 
@@ -61,7 +60,7 @@ final class TranslationCoordinator {
     private let permissionManager: any PermissionChecking
     private let grabSelection: @MainActor () async -> RichSourceDocument?
     private let captureOCR: @MainActor () async throws -> String
-    private let enabledProviderSlots: @MainActor () -> [any TranslationProvider]
+    private let resolveSmart: @MainActor () async -> SmartTranslationResult
     /// Invalidates capture actions that are still awaiting a result when a newer session starts.
     private var actionToken = 0
     private var activeTasks: [String: Task<Void, Never>] = [:]
@@ -72,13 +71,13 @@ final class TranslationCoordinator {
         registry: TranslationProviderRegistry,
         grabSelection: @escaping @MainActor () async -> RichSourceDocument? = TextSelectionManager.grabSelectedDocument,
         captureOCR: @escaping @MainActor () async throws -> String = ScreenCaptureOCR.captureAndRecognize,
-        enabledProviderSlots: (@MainActor () -> [any TranslationProvider])? = nil
+        resolveSmart: @escaping @MainActor () async -> SmartTranslationResult = { await SmartTranslationResolver.resolve() }
     ) {
         self.permissionManager = permissionManager
         self.registry = registry
         self.grabSelection = grabSelection
         self.captureOCR = captureOCR
-        self.enabledProviderSlots = enabledProviderSlots ?? { registry.enabledSlots }
+        self.resolveSmart = resolveSmart
     }
 
     // MARK: - Public Actions
@@ -88,9 +87,9 @@ final class TranslationCoordinator {
     /// clipboard and manual-input fallbacks remain available when that permission is missing.
     @discardableResult
     func translateSmart() async -> SmartTranslationResult {
-        phase = .grabbing
-        let result = await SmartTranslationResolver.resolve()
-        guard !Task.isCancelled else { return .cancelled }
+        let requestToken = beginAction()
+        let result = await resolveSmart()
+        guard !Task.isCancelled, requestToken == actionToken else { return .cancelled }
 
         switch result {
         case let .selection(document), let .clipboard(document):
@@ -114,15 +113,12 @@ final class TranslationCoordinator {
             return .present
         }
 
-        let previousPhase = phase
-        phase = .grabbing
-
         guard let document = await grabSelection(),
               !document.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !Task.isCancelled,
               requestToken == actionToken
         else {
-            return preserveAction(requestToken, restoring: previousPhase)
+            return .preserve
         }
 
         translate(document: document)
@@ -151,20 +147,17 @@ final class TranslationCoordinator {
             return .present
         }
 
-        let previousPhase = phase
-        phase = .grabbing
-
         do {
             let text = try await captureOCR()
             guard !Task.isCancelled, requestToken == actionToken else {
-                return preserveAction(requestToken, restoring: previousPhase)
+                return .preserve
             }
             translate(text)
             return .present
         } catch OCRError.captureCancelled {
-            return preserveAction(requestToken, restoring: previousPhase)
+            return .preserve
         } catch is CancellationError {
-            return preserveAction(requestToken, restoring: previousPhase)
+            return .preserve
         } catch {
             guard requestToken == actionToken else { return .preserve }
             phase = .active
@@ -263,7 +256,7 @@ final class TranslationCoordinator {
         targetLanguage = resolveTargetLanguage(detected: detectedLanguage)
         phase = .active
 
-        let providers = enabledProviderSlots()
+        let providers = registry.enabledSlots
         activeSlots = providers
         translationGeneration += 1
         guard !providers.isEmpty else {
@@ -369,12 +362,6 @@ final class TranslationCoordinator {
 
     private func invalidatePendingAction() {
         actionToken &+= 1
-    }
-
-    private func preserveAction(_ requestToken: Int, restoring previousPhase: Phase) -> ActionOutcome {
-        guard requestToken == actionToken else { return .preserve }
-        phase = previousPhase
-        return .preserve
     }
 
     /// Markdown sources go to LLM providers verbatim with a preserve-formatting instruction;
