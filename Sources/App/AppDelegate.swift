@@ -270,6 +270,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         smartTranslationTask?.cancel()
     }
 
+    @discardableResult
+    func cancelSmartTranslationAndWait() async -> Bool {
+        await SmartTranslationTaskCleanup.cancelAndWait(smartTranslationTask)
+    }
+
     private func setupShortcuts() {
         KeyboardShortcuts.onKeyUp(for: .smartTranslation) { [weak self] in
             self?.performSmartTranslation()
@@ -277,8 +282,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyUp(for: .translateSelection) { [weak self] in
             guard let self else { return }
-            self.cancelSmartTranslation()
             Task { @MainActor in
+                await self.cancelSmartTranslationAndWait()
                 await self.coordinator.translateSelection()
                 if case .idle = self.coordinator.phase { return }
                 self.panelController.showAtCursor()
@@ -306,8 +311,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyUp(for: .clipboardTranslation) { [weak self] in
             guard let self else { return }
-            self.cancelSmartTranslation()
             Task { @MainActor in
+                await self.cancelSmartTranslationAndWait()
                 await self.coordinator.translateClipboard()
                 self.panelController.showAtCursor()
             }
@@ -317,6 +322,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Selection Monitor
 
     private func setupSelectionMonitor() {
+        selectionMonitor.prepareForClipboardAccess = { [weak self] in
+            guard let self else { return false }
+            return await self.cancelSmartTranslationAndWait()
+        }
+
         selectionMonitor.onTextSelected = { [weak self] text, point in
             guard let self, !self.panelController.isVisible else { return }
             self.triggerIconController.show(text: text, near: point)
@@ -329,8 +339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         triggerIconController.onTranslateRequested = { [weak self] text in
             guard let self else { return }
-            self.cancelSmartTranslation()
             Task { @MainActor in
+                await self.cancelSmartTranslationAndWait()
                 await self.coordinator.translateTriggeredSelection(text)
                 if case .idle = self.coordinator.phase { return }
                 self.panelController.showAtCursor()
