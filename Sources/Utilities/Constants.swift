@@ -5,12 +5,18 @@ import KeyboardShortcuts
 
 // MARK: - Supported Languages
 
-/// Languages available for translation UI and provider checks.
+/// Languages available throughout the app. Individual providers can support a subset.
 enum SupportedLanguages {
-    /// Ordered list of supported language codes.
-    static let codes: [String] = [
+    /// The target list shown before customizable favorites were introduced.
+    /// Keep this order stable so existing users see the same choices by default.
+    static let defaultTargetCodes: [String] = [
         "en", "zh-Hans", "zh-Hant", "ja", "ko",
         "fr", "de", "es", "pt-BR", "ru", "ar", "it", "th", "vi",
+    ]
+
+    /// Complete catalog used by source selection and language detection.
+    static let codes: [String] = defaultTargetCodes + [
+        "pl", "nl", "tr", "uk", "id", "sv",
     ]
 
     /// All supported language codes and their localized display names.
@@ -44,12 +50,69 @@ enum SupportedLanguages {
         "it": "Italian",
         "th": "Thai",
         "vi": "Vietnamese",
+        "pl": "Polish",
+        "nl": "Dutch",
+        "tr": "Turkish",
+        "uk": "Ukrainian",
+        "id": "Indonesian",
+        "sv": "Swedish",
     ]
 
     /// Returns the English full name for a language code (e.g. `zh-Hans` → `Simplified Chinese`).
     /// Falls back to the code itself for unknown identifiers.
     static func englishName(for code: String) -> String {
         englishNames[code] ?? code
+    }
+
+    /// Removes unknown and duplicate values while preserving the user's order.
+    static func normalizedTargetCodes(_ storedCodes: [String]) -> [String] {
+        var seen: Set<String> = []
+        return storedCodes.filter { codeSet.contains($0) && seen.insert($0).inserted }
+    }
+
+    /// An empty or invalid persisted list falls back to the pre-existing target list.
+    static func effectiveTargetCodes(_ storedCodes: [String]) -> [String] {
+        let normalized = normalizedTargetCodes(storedCodes)
+        return normalized.isEmpty ? defaultTargetCodes : normalized
+    }
+
+    /// Keeps a persisted target usable after its language is removed from favorites.
+    static func resolvedTarget(_ target: String, favoriteCodes: [String]) -> String {
+        let normalized = normalizedTargetCodes(favoriteCodes)
+        if normalized.isEmpty {
+            return defaultTargetCodes.contains(target) ? target : "zh-Hans"
+        }
+        return normalized.contains(target) ? target : normalized[0]
+    }
+
+    /// Keeps a valid swapped source visible without silently adding it to favorites.
+    static func targetPickerCodes(_ favoriteCodes: [String], selectedTarget: String) -> [String] {
+        var available = effectiveTargetCodes(favoriteCodes)
+        if codeSet.contains(selectedTarget), !available.contains(selectedTarget) {
+            available.append(selectedTarget)
+        }
+        return available
+    }
+
+    /// Auto-flips to the first favorite outside the detected language family.
+    /// With the default list this preserves the existing English/Chinese behavior.
+    static func resolvedTarget(
+        _ target: String,
+        detectedLanguage: String?,
+        favoriteCodes: [String]
+    ) -> String {
+        let available = effectiveTargetCodes(favoriteCodes)
+        let preferred = resolvedTarget(target, favoriteCodes: favoriteCodes)
+        guard let detectedLanguage,
+              sameLanguage(detectedLanguage, preferred)
+        else { return preferred }
+
+        return available.first { !sameLanguage($0, detectedLanguage) } ?? preferred
+    }
+
+    private static func sameLanguage(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs.hasPrefix("zh"), rhs.hasPrefix("zh") { return true }
+        return lhs == rhs
     }
 }
 
@@ -273,6 +336,10 @@ enum SwapLanguagesShortcut {
 
 extension Defaults.Keys {
     static let targetLanguage = Key<String>("targetLanguage", default: "zh-Hans")
+    static let favoriteTargetLanguages = Key<[String]>(
+        "favoriteTargetLanguages",
+        default: SupportedLanguages.defaultTargetCodes
+    )
     static let sourceLanguage = Key<String>("sourceLanguage", default: "auto")
 
     // Enabled translation providers

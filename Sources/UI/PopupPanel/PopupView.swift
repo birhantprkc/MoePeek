@@ -12,7 +12,10 @@ struct PopupView: View {
     @State private var autoPlayedGeneration: Int = -1
     @Environment(\.ttsCoordinator) private var ttsCoordinator
     @State private var sourceLang: String = Defaults[.sourceLanguage]
-    @State private var targetLang: String = Defaults[.targetLanguage]
+    @State private var targetLang: String = SupportedLanguages.resolvedTarget(
+        Defaults[.targetLanguage],
+        favoriteCodes: Defaults[.favoriteTargetLanguages]
+    )
     @State private var inputHeight: CGFloat = CGFloat(Defaults[.popupInputHeight])
     @State private var containerHeight: CGFloat = CGFloat(Defaults[.popupDefaultHeight])
     @Default(.popupFontSize) private var fontSize

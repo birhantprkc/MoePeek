@@ -14,8 +14,8 @@ struct AppleTranslationProvider: TranslationProvider {
     let supportsStreaming = false
     let isAvailable = true
 
-    /// Languages supported by Apple Translation framework.
-    static var supportedLanguageCodes: Set<String> { SupportedLanguages.codeSet }
+    /// Catalog languages accepted by the UI. Actual pair support is checked at runtime.
+    static var catalogLanguageCodes: Set<String> { SupportedLanguages.codeSet }
 
     @MainActor
     var isConfigured: Bool { true }
@@ -47,7 +47,7 @@ struct AppleTranslationProvider: TranslationProvider {
     // MARK: - Private
 
     private func translate(_ text: String, from sourceLang: String?, to targetLang: String) async throws -> String {
-        let validSource = sourceLang.flatMap { Self.supportedLanguageCodes.contains($0) ? $0 : nil }
+        let validSource = sourceLang.flatMap { Self.catalogLanguageCodes.contains($0) ? $0 : nil }
         let source = validSource.flatMap { Locale.Language(identifier: $0) }
         let target = Locale.Language(identifier: targetLang)
 
