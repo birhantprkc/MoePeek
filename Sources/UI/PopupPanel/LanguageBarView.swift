@@ -9,6 +9,7 @@ struct LanguageBarView: View {
     @Binding var targetLanguage: String
     let onSwap: () -> Void
     @Default(.popupFontSize) private var fontSize
+    @Default(.favoriteTargetLanguages) private var favoriteTargetLanguages
 
     private var pickerControlSize: ControlSize {
         if fontSize <= 12 { .small }
@@ -38,8 +39,14 @@ struct LanguageBarView: View {
 
             // Target language picker
             Picker("", selection: $targetLanguage) {
-                ForEach(SupportedLanguages.all, id: \.code) { code, name in
-                    Text(name).tag(code)
+                ForEach(
+                    SupportedLanguages.targetPickerCodes(
+                        favoriteTargetLanguages,
+                        selectedTarget: targetLanguage
+                    ),
+                    id: \.self
+                ) { code in
+                    Text(Locale.current.localizedString(forIdentifier: code) ?? code).tag(code)
                 }
             }
             .labelsHidden()

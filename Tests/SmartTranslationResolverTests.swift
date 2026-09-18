@@ -39,6 +39,17 @@ import Testing
         #expect(result == .clipboard(.plain("before shortcut")))
     }
 
+    @Test func ignoresWhitespaceOnlySelectionAndFallsBackToClipboard() async {
+        let result = await SmartTranslationResolver.resolve(
+            captureClipboardSnapshot: {
+                .init(rtfd: nil, rtf: nil, html: nil, plain: "clipboard")
+            },
+            grabSelection: { .plain(" \n\t") }
+        )
+
+        #expect(result == .clipboard(.plain("clipboard")))
+    }
+
     @Test func entersManualInputWhenSelectionAndClipboardAreEmpty() async {
         let result = await SmartTranslationResolver.resolve(
             captureClipboardSnapshot: { nil },

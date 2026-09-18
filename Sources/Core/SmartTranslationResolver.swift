@@ -19,7 +19,8 @@ enum SmartTranslationResolver {
         let clipboardSnapshot = captureClipboardSnapshot()
         guard !Task.isCancelled else { return .cancelled }
 
-        if let selection = await grabSelection() {
+        if let selection = await grabSelection(),
+           !selection.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard !Task.isCancelled else { return .cancelled }
             return .selection(selection)
         }

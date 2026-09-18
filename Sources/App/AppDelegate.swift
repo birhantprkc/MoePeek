@@ -232,11 +232,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Shortcuts
 
     func performSmartTranslation() {
-        cancelSmartTranslation()
+        let previousTask = smartTranslationTask
+        previousTask?.cancel()
 
         let taskID = UUID()
         smartTranslationTaskID = taskID
         smartTranslationTask = Task { @MainActor [weak self] in
+            // ClipboardGrabber restores the pasteboard during cancellation cleanup, so the next
+            // invocation must not capture its snapshot until that cleanup has fully completed.
+            if let previousTask {
+                await previousTask.value
+            }
+
             guard let self else { return }
             defer {
                 if self.smartTranslationTaskID == taskID {
@@ -245,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
+            guard !Task.isCancelled else { return }
             let result = await self.coordinator.translateSmart()
             guard !Task.isCancelled else { return }
             switch result {
@@ -260,8 +268,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func cancelSmartTranslation() {
         smartTranslationTask?.cancel()
-        smartTranslationTask = nil
-        smartTranslationTaskID = nil
+    }
+
+    @discardableResult
+    func cancelSmartTranslationAndWait() async -> Bool {
+        await SmartTranslationTaskCleanup.cancelAndWait(smartTranslationTask)
     }
 
     private func setupShortcuts() {
@@ -271,8 +282,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyUp(for: .translateSelection) { [weak self] in
             guard let self else { return }
-            self.cancelSmartTranslation()
             Task { @MainActor in
+                await self.cancelSmartTranslationAndWait()
                 let outcome = await self.coordinator.translateSelection()
                 if outcome.shouldPresent {
                     self.panelController.showAtCursor()
@@ -302,8 +313,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyUp(for: .clipboardTranslation) { [weak self] in
             guard let self else { return }
-            self.cancelSmartTranslation()
             Task { @MainActor in
+                await self.cancelSmartTranslationAndWait()
                 await self.coordinator.translateClipboard()
                 self.panelController.showAtCursor()
             }
@@ -313,6 +324,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Selection Monitor
 
     private func setupSelectionMonitor() {
+        selectionMonitor.shouldSkipClipboardAccess = { [weak self] in
+            self?.smartTranslationTask != nil
+        }
+
         selectionMonitor.onTextSelected = { [weak self] text, point in
             guard let self, !self.panelController.isVisible else { return }
             self.triggerIconController.show(text: text, near: point)
@@ -325,8 +340,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         triggerIconController.onTranslateRequested = { [weak self] text in
             guard let self else { return }
-            self.cancelSmartTranslation()
             Task { @MainActor in
+                await self.cancelSmartTranslationAndWait()
                 await self.coordinator.translateTriggeredSelection(text)
                 if case .idle = self.coordinator.phase { return }
                 self.panelController.showAtCursor()

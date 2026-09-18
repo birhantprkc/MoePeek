@@ -53,8 +53,8 @@ struct MenuItemView: View {
         Button {
             guard let coordinator = appDelegate.coordinator,
                   let panelController = appDelegate.panelController else { return }
-            appDelegate.cancelSmartTranslation()
-            Task {
+            Task { @MainActor in
+                await appDelegate.cancelSmartTranslationAndWait()
                 let outcome = await coordinator.translateSelection()
                 if outcome.shouldPresent {
                     panelController.showAtCursor()
@@ -68,8 +68,8 @@ struct MenuItemView: View {
         Button {
             guard let coordinator = appDelegate.coordinator,
                   let panelController = appDelegate.panelController else { return }
-            appDelegate.cancelSmartTranslation()
-            Task {
+            Task { @MainActor in
+                await appDelegate.cancelSmartTranslationAndWait()
                 await coordinator.translateClipboard()
                 panelController.showAtCursor()
             }

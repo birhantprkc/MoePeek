@@ -8,6 +8,7 @@ import Defaults
 final class SelectionMonitor {
     var onTextSelected: ((String, CGPoint) -> Void)?
     var onMouseDown: ((CGPoint) -> Void)?
+    var shouldSkipClipboardAccess: (() -> Bool)?
 
     nonisolated(unsafe) private var globalMonitor: Any?
     nonisolated(unsafe) private var mouseDownMonitor: Any?
@@ -122,6 +123,7 @@ final class SelectionMonitor {
 
             // Tier 3 gate: require full mode, exclude Finder
             guard mode == .full, !isFinderFrontmost else { return }
+            guard self.shouldSkipClipboardAccess?() != true else { return }
 
             // Short-circuit before Tier 3: if the clipboard changed since mouse-up,
             // the user already pressed ⌘+C — read directly without simulating another copy.

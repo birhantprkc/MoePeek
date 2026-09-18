@@ -6,7 +6,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct GeneralSettingsView: View {
-    @Default(.targetLanguage) private var targetLanguage
     @Default(.isAutoDetectEnabled) private var isAutoDetectEnabled
     @Default(.textDetectionMode) private var textDetectionMode
     @Default(.triggerActivationMode) private var triggerActivationMode
@@ -122,11 +121,7 @@ struct GeneralSettingsView: View {
             }
 
             Section("Translation") {
-                Picker("Translate to:", selection: $targetLanguage) {
-                    ForEach(SupportedLanguages.all, id: \.code) { code, name in
-                        Text(name).tag(code)
-                    }
-                }
+                TargetLanguageSettingsView()
 
                 Toggle("Show floating icon on text selection", isOn: $isAutoDetectEnabled)
 
