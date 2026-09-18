@@ -4,7 +4,7 @@ import Testing
 @testable import MoePeek
 
 @MainActor
-@Suite struct TranslationCoordinatorTests {
+@Suite struct TranslationActionOutcomeTests {
     @Test func missingSelectionPreservesIdleWithoutShowingAnError() async {
         let coordinator = makeCoordinator(grabSelection: { nil })
 
