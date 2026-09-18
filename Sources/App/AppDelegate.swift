@@ -232,11 +232,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Shortcuts
 
     func performSmartTranslation() {
-        cancelSmartTranslation()
+        let previousTask = smartTranslationTask
+        previousTask?.cancel()
 
         let taskID = UUID()
         smartTranslationTaskID = taskID
         smartTranslationTask = Task { @MainActor [weak self] in
+            // ClipboardGrabber restores the pasteboard during cancellation cleanup, so the next
+            // invocation must not capture its snapshot until that cleanup has fully completed.
+            if let previousTask {
+                await previousTask.value
+            }
+
             guard let self else { return }
             defer {
                 if self.smartTranslationTaskID == taskID {
@@ -245,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
+            guard !Task.isCancelled else { return }
             let result = await self.coordinator.translateSmart()
             guard !Task.isCancelled else { return }
             switch result {
@@ -260,8 +268,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func cancelSmartTranslation() {
         smartTranslationTask?.cancel()
-        smartTranslationTask = nil
-        smartTranslationTaskID = nil
     }
 
     private func setupShortcuts() {
