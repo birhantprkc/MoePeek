@@ -1,4 +1,3 @@
-import Defaults
 import SwiftUI
 import Testing
 @testable import MoePeek
@@ -7,19 +6,18 @@ import Testing
 @MainActor
 struct TranslationCoordinatorTests {
     @Test func keepsOnDemandProviderIdleUntilRequestedAndResetsForNewText() async {
-        let saved = saveProviderDefaults()
-        defer { restoreProviderDefaults(saved) }
-
-        Defaults[.enabledProviders] = ["automatic", "manual"]
-        Defaults[.onDemandProviderIDs] = ["manual"]
-        Defaults[.providerOrder] = ["automatic", "manual"]
+        let preferences = ProviderTestPreferences(
+            enabled: ["automatic", "manual"],
+            onDemand: ["manual"],
+            order: ["automatic", "manual"]
+        )
 
         let recorder = ProviderCallRecorder()
         let automatic = RecordingProvider(id: "automatic", recorder: recorder)
         let manual = RecordingProvider(id: "manual", recorder: recorder)
         let coordinator = TranslationCoordinator(
             permissionManager: PermissionManager(),
-            registry: TranslationProviderRegistry(providers: [automatic, manual])
+            registry: preferences.registry(providers: [automatic, manual])
         )
 
         coordinator.translate("first")
@@ -48,12 +46,11 @@ struct TranslationCoordinatorTests {
     }
 
     @Test func appliesProviderSettingToEveryModelSlot() async {
-        let saved = saveProviderDefaults()
-        defer { restoreProviderDefaults(saved) }
-
-        Defaults[.enabledProviders] = ["multi"]
-        Defaults[.onDemandProviderIDs] = ["multi"]
-        Defaults[.providerOrder] = ["multi"]
+        let preferences = ProviderTestPreferences(
+            enabled: ["multi"],
+            onDemand: ["multi"],
+            order: ["multi"]
+        )
 
         let recorder = ProviderCallRecorder()
         let provider = RecordingProvider(
@@ -63,7 +60,7 @@ struct TranslationCoordinatorTests {
         )
         let coordinator = TranslationCoordinator(
             permissionManager: PermissionManager(),
-            registry: TranslationProviderRegistry(providers: [provider])
+            registry: preferences.registry(providers: [provider])
         )
 
         coordinator.translate("hello")
@@ -82,22 +79,21 @@ struct TranslationCoordinatorTests {
     }
 
     @Test func cancelledRequestCannotOverwriteNewOnDemandState() async {
-        let saved = saveProviderDefaults()
-        defer { restoreProviderDefaults(saved) }
-
-        Defaults[.enabledProviders] = ["provider"]
-        Defaults[.onDemandProviderIDs] = []
-        Defaults[.providerOrder] = ["provider"]
+        let preferences = ProviderTestPreferences(
+            enabled: ["provider"],
+            onDemand: [],
+            order: ["provider"]
+        )
 
         let recorder = ProviderCallRecorder()
         let provider = RecordingProvider(id: "provider", recorder: recorder)
         let coordinator = TranslationCoordinator(
             permissionManager: PermissionManager(),
-            registry: TranslationProviderRegistry(providers: [provider])
+            registry: preferences.registry(providers: [provider])
         )
 
         coordinator.translate("first")
-        Defaults[.onDemandProviderIDs] = ["provider"]
+        preferences.onDemand = ["provider"]
         coordinator.translate("second")
         await Task.yield()
 
@@ -107,18 +103,17 @@ struct TranslationCoordinatorTests {
     }
 
     @Test func retriesOnlyAnErroredProvider() async {
-        let saved = saveProviderDefaults()
-        defer { restoreProviderDefaults(saved) }
-
-        Defaults[.enabledProviders] = ["flaky"]
-        Defaults[.onDemandProviderIDs] = []
-        Defaults[.providerOrder] = ["flaky"]
+        let preferences = ProviderTestPreferences(
+            enabled: ["flaky"],
+            onDemand: [],
+            order: ["flaky"]
+        )
 
         let recorder = ProviderCallRecorder()
         let provider = RecordingProvider(id: "flaky", recorder: recorder, failsFirstAttempt: true)
         let coordinator = TranslationCoordinator(
             permissionManager: PermissionManager(),
-            registry: TranslationProviderRegistry(providers: [provider])
+            registry: preferences.registry(providers: [provider])
         )
 
         coordinator.translate("hello")
@@ -150,26 +145,28 @@ struct TranslationCoordinatorTests {
         if case .some(.error) = state { return true }
         return false
     }
-
-    private func saveProviderDefaults() -> ProviderDefaultsSnapshot {
-        ProviderDefaultsSnapshot(
-            enabled: Defaults[.enabledProviders],
-            onDemand: Defaults[.onDemandProviderIDs],
-            order: Defaults[.providerOrder]
-        )
-    }
-
-    private func restoreProviderDefaults(_ snapshot: ProviderDefaultsSnapshot) {
-        Defaults[.enabledProviders] = snapshot.enabled
-        Defaults[.onDemandProviderIDs] = snapshot.onDemand
-        Defaults[.providerOrder] = snapshot.order
-    }
 }
 
-private struct ProviderDefaultsSnapshot {
+@MainActor
+private final class ProviderTestPreferences {
     let enabled: Set<String>
-    let onDemand: Set<String>
+    var onDemand: Set<String>
     let order: [String]
+
+    init(enabled: Set<String>, onDemand: Set<String>, order: [String]) {
+        self.enabled = enabled
+        self.onDemand = onDemand
+        self.order = order
+    }
+
+    func registry(providers: [any TranslationProvider]) -> TranslationProviderRegistry {
+        TranslationProviderRegistry(
+            providers: providers,
+            enabledProviderIDs: { [self] in enabled },
+            providerOrder: { [self] in order },
+            onDemandProviderIDs: { [self] in onDemand }
+        )
+    }
 }
 
 private actor ProviderCallRecorder {

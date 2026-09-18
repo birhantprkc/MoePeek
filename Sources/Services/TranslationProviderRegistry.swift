@@ -8,13 +8,25 @@ final class TranslationProviderRegistry {
     /// All providers available on this system (filtered by `isAvailable`).
     private(set) var providers: [any TranslationProvider]
 
-    init(providers: [any TranslationProvider]) {
+    @ObservationIgnored private let enabledProviderIDs: @MainActor () -> Set<String>
+    @ObservationIgnored private let providerOrder: @MainActor () -> [String]
+    @ObservationIgnored private let onDemandProviderIDs: @MainActor () -> Set<String>
+
+    init(
+        providers: [any TranslationProvider],
+        enabledProviderIDs: @escaping @MainActor () -> Set<String> = { Defaults[.enabledProviders] },
+        providerOrder: @escaping @MainActor () -> [String] = { Defaults[.providerOrder] },
+        onDemandProviderIDs: @escaping @MainActor () -> Set<String> = { Defaults[.onDemandProviderIDs] }
+    ) {
         self.providers = providers.filter { $0.isAvailable }
+        self.enabledProviderIDs = enabledProviderIDs
+        self.providerOrder = providerOrder
+        self.onDemandProviderIDs = onDemandProviderIDs
     }
 
     /// Providers the user has enabled (via Defaults).
     var enabledProviders: [any TranslationProvider] {
-        let ids = Defaults[.enabledProviders]
+        let ids = enabledProviderIDs()
         return providers.filter { ids.contains($0.id) }
     }
 
@@ -41,10 +53,10 @@ final class TranslationProviderRegistry {
     /// single-model providers pass through unchanged (preserving their original id).
     /// Order respects `providerOrder` user preference; unordered providers append at end.
     ///
-    /// - Note: This reads `Defaults[.providerOrder]` which is not tracked by `@Observable`.
+    /// - Note: The provider order is not tracked by `@Observable`.
     ///   This property is read per-translation call, not observed by SwiftUI.
     var enabledSlots: [any TranslationProvider] {
-        let ordered = Self.sorted(enabledProviders, by: Defaults[.providerOrder])
+        let ordered = Self.sorted(enabledProviders, by: providerOrder())
         var result: [any TranslationProvider] = []
         for provider in ordered {
             appendSlots(for: provider, to: &result)
@@ -53,7 +65,7 @@ final class TranslationProviderRegistry {
     }
 
     func translatesAutomatically(_ provider: any TranslationProvider) -> Bool {
-        !Defaults[.onDemandProviderIDs].contains(provider.configurationID)
+        !onDemandProviderIDs().contains(provider.configurationID)
     }
 
     /// Expand a single provider into its model slots and append to the result array.
