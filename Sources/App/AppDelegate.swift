@@ -102,22 +102,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         migrateV2KeychainToDefaults()
         migrateV3RemovedProviders()
         migrateV4PopupPositionKeys()
-        migrateV5SmartTranslationShortcut()
-    }
-
-    /// V5: Move the existing selection binding to the broader smart action. The established
-    /// selection shortcut name and explicit action remain available for users who want both.
-    private func migrateV5SmartTranslationShortcut() {
-        let migrationKey = "hasMigratedSmartTranslationShortcut"
-        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
-
-        if KeyboardShortcuts.getShortcut(for: .smartTranslation) == nil,
-           let selectionShortcut = KeyboardShortcuts.getShortcut(for: .translateSelection) {
-            KeyboardShortcuts.setShortcut(selectionShortcut, for: .smartTranslation)
-            KeyboardShortcuts.setShortcut(nil, for: .translateSelection)
-        }
-
-        UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
     /// V4: Earlier builds of the remember-position feature stored the panel's bottom-left

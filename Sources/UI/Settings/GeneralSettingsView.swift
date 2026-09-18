@@ -49,6 +49,9 @@ struct GeneralSettingsView: View {
         Form {
             Section("Keyboard Shortcuts") {
                 GlobalShortcutRecorder("Smart Translation:", name: .smartTranslation)
+                Text("Smart Translation has no default shortcut. It uses selected content first, then the clipboard snapshot captured before selection lookup, and opens manual input when both are empty.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 GlobalShortcutRecorder("Selection Translation:", name: .translateSelection)
                 GlobalShortcutRecorder("Screenshot OCR:", name: .ocrScreenshot)
                 GlobalShortcutRecorder("Manual Translation:", name: .inputTranslation)
