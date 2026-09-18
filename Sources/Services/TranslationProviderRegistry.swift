@@ -52,6 +52,10 @@ final class TranslationProviderRegistry {
         return result
     }
 
+    func translatesAutomatically(_ provider: any TranslationProvider) -> Bool {
+        !Defaults[.onDemandProviderIDs].contains(provider.configurationID)
+    }
+
     /// Expand a single provider into its model slots and append to the result array.
     private func appendSlots(for provider: any TranslationProvider, to result: inout [any TranslationProvider]) {
         let models = provider.activeModels
@@ -98,6 +102,7 @@ final class TranslationProviderRegistry {
         var enabled = Defaults[.enabledProviders]
         enabled.remove(id)
         Defaults[.enabledProviders] = enabled
+        Defaults[.onDemandProviderIDs].remove(id)
         Defaults[.providerOrder].removeAll { $0 == id }
         OpenAICompatibleProvider.cleanupDefaults(for: id)
         providers.removeAll { $0.id == id }

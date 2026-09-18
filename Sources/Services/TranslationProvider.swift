@@ -23,6 +23,8 @@ enum ProviderCategory: String, CaseIterable {
 protocol TranslationProvider: Sendable {
     /// Unique identifier used for Defaults/Keychain namespacing, e.g. "openai", "apple".
     var id: String { get }
+    /// Provider-level identifier used for shared settings across model slots.
+    var configurationID: String { get }
     /// Display name shown in UI.
     var displayName: String { get }
     /// SF Symbol icon name (fallback when iconAssetName is nil).
@@ -89,6 +91,7 @@ extension ParallelModelProvider {
 // MARK: - Default Implementation
 
 extension TranslationProvider {
+    var configurationID: String { id }
     var category: ProviderCategory { .llm }
     var isDeletable: Bool { false }
     var activeModels: [String] { [] }
@@ -113,6 +116,7 @@ struct ModelSlotProvider: TranslationProvider {
     let modelOverride: String
 
     var id: String { "\(inner.id):\(modelOverride)" }
+    var configurationID: String { inner.configurationID }
     var displayName: String { "\(inner.displayName) · \(modelOverride)" }
     var iconSystemName: String { inner.iconSystemName }
     var iconAssetName: String? { inner.iconAssetName }

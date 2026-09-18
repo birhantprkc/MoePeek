@@ -278,6 +278,10 @@ extension Defaults.Keys {
     // Enabled translation providers
     static let enabledProviders = Key<Set<String>>("enabledProviders", default: ["openai"])
 
+    // Enabled providers that wait for an explicit action in the result card.
+    // Storing the opt-out keeps automatic translation as the backward-compatible default.
+    static let onDemandProviderIDs = Key<Set<String>>("onDemandProviderIDs", default: [])
+
     // User-defined display order for providers (ordered list of provider IDs)
     static let providerOrder = Key<[String]>("providerOrder", default: [])
 
