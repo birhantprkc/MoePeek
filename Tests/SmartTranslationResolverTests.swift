@@ -4,6 +4,28 @@ import Testing
 
 @MainActor
 @Suite struct SmartTranslationResolverTests {
+    @Test func waitsForBackgroundCopyRestorationBeforeSnapshot() async {
+        let gate = ClipboardAccessGate()
+        #expect(await gate.acquire())
+        var clipboard = "temporary simulated copy"
+        var started = false
+        let task = Task {
+            await SmartTranslationResolver.resolve(
+                captureClipboardSnapshot: {
+                    started = true
+                    guard await gate.acquire() else { return nil }
+                    defer { gate.release() }
+                    return .init(rtfd: nil, rtf: nil, html: nil, plain: clipboard)
+                },
+                grabSelection: { nil }
+            )
+        }
+        while !started { await Task.yield() }
+        clipboard = "restored original"
+        gate.release()
+        #expect(await task.value == .clipboard(.plain("restored original")))
+    }
+
     @Test func snapshotsClipboardBeforeGrabbingSelection() async {
         var events: [String] = []
         let selection = RichSourceDocument.plain("selected")

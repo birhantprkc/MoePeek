@@ -5,6 +5,30 @@ import Testing
 
 @MainActor
 @Suite struct TranslationActionOutcomeTests {
+    @Test func overlappingSelectionWaitsAndLatestRequestPresents() async {
+        let gate = ClipboardAccessGate()
+        var started = 0
+        var firstCapture: CheckedContinuation<Void, Never>?
+        let coordinator = makeCoordinator(grabSelection: {
+            started += 1
+            let index = started
+            guard await gate.acquire() else { return nil }
+            defer { gate.release() }
+            if index == 1 {
+                await withCheckedContinuation { firstCapture = $0 }
+            }
+            return .plain("selection \(index)")
+        })
+        let first = Task { await coordinator.translateSelection() }
+        while firstCapture == nil { await Task.yield() }
+        let second = Task { await coordinator.translateSelection() }
+        while started < 2 { await Task.yield() }
+        firstCapture?.resume()
+        #expect(!(await first.value).shouldPresent)
+        #expect((await second.value).shouldPresent)
+        #expect(coordinator.sourceText == "selection 2")
+    }
+
     @Test func missingSelectionPreservesIdleWithoutShowingAnError() async {
         let coordinator = makeCoordinator(grabSelection: { nil })
 
