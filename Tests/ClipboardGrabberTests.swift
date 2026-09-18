@@ -4,6 +4,25 @@ import Testing
 
 @MainActor
 @Suite struct ClipboardGrabberTests {
+    @Test func cancelledWaiterDoesNotReleaseActiveCapture() async {
+        let gate = ClipboardAccessGate()
+        #expect(await gate.acquire())
+        let cancelled = Task { await gate.acquire() }
+        cancelled.cancel()
+        #expect(await cancelled.value == false)
+        var acquired = false
+        let next = Task {
+            guard await gate.acquire() else { return }
+            acquired = true
+            gate.release()
+        }
+        await Task.yield()
+        #expect(!acquired)
+        gate.release()
+        await next.value
+        #expect(acquired)
+    }
+
     @Test func cancelledWaitStillObservesDelayedPasteboardChange() async {
         var changeCount = 0
         var waitCount = 0

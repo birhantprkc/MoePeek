@@ -3,8 +3,7 @@ import Defaults
 import os
 
 enum ClipboardGrabber {
-    /// Prevents concurrent pasteboard access which causes EXC_BAD_ACCESS.
-    private static let isGrabbing = OSAllocatedUnfairLock(initialState: false)
+    @MainActor private static let accessGate = ClipboardAccessGate()
 
     /// Tag applied to synthetic CGEvents so the keyboard monitor can distinguish
     /// our simulated ⌘+C from a real user keypress.
@@ -24,21 +23,26 @@ enum ClipboardGrabber {
         return await RichTextImporter.document(from: payload)
     }
 
+    /// Read only after any simulated copy has restored the original clipboard.
+    @MainActor static func readStable<Value: Sendable>(
+        _ read: @MainActor (NSPasteboard) -> Value?
+    ) async -> Value? {
+        guard await accessGate.acquire() else { return nil }
+        defer { accessGate.release() }
+        return read(NSPasteboard.general)
+    }
+
     /// Simulates ⌘+C, hands the updated pasteboard to `read`, then restores the previous
     /// clipboard content unless an external modification (real user ⌘+C) was detected.
     @MainActor private static func grab<Value: Sendable>(
         _ read: @MainActor (NSPasteboard) -> Value?
     ) async -> Value? {
+        guard await accessGate.acquire() else { return nil }
+        defer { accessGate.release() }
+
         // Skip synthesizing ⌘C while a screenshot tool's capture overlay is on screen —
         // it would swallow the keypress as its own shortcut and abort the capture. See issue #67.
         guard !ScreenshotOverlayDetector.isCapturingScreenshot() else { return nil }
-
-        guard isGrabbing.withLock({ val in
-            if val { return false }
-            val = true
-            return true
-        }) else { return nil }
-        defer { isGrabbing.withLock { $0 = false } }
 
         let pasteboard = NSPasteboard.general
         let previousCount = pasteboard.changeCount
@@ -150,5 +154,28 @@ enum ClipboardGrabber {
         keyUp?.flags = .maskCommand
         keyUp?.setIntegerValueField(.eventSourceUserData, value: syntheticEventTag)
         keyUp?.post(tap: .cgSessionEventTap)
+    }
+}
+
+/// Keeps capture and snapshot reads exclusive across suspension points.
+@MainActor
+final class ClipboardAccessGate {
+    private var isLocked = false
+
+    func acquire() async -> Bool {
+        while isLocked {
+            do {
+                try await Task.sleep(for: .milliseconds(10))
+            } catch {
+                return false
+            }
+        }
+        guard !Task.isCancelled else { return false }
+        isLocked = true
+        return true
+    }
+
+    func release() {
+        isLocked = false
     }
 }

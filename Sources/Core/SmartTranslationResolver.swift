@@ -13,10 +13,10 @@ enum SmartTranslationResult: Sendable, Equatable {
 @MainActor
 enum SmartTranslationResolver {
     static func resolve(
-        captureClipboardSnapshot: @MainActor () -> RichTextImporter.Payload? = makeClipboardSnapshot,
+        captureClipboardSnapshot: @MainActor () async -> RichTextImporter.Payload? = makeClipboardSnapshot,
         grabSelection: @MainActor () async -> RichSourceDocument? = TextSelectionManager.grabSelectedDocument
     ) async -> SmartTranslationResult {
-        let clipboardSnapshot = captureClipboardSnapshot()
+        let clipboardSnapshot = await captureClipboardSnapshot()
         guard !Task.isCancelled else { return .cancelled }
 
         if let selection = await grabSelection(),
@@ -35,15 +35,16 @@ enum SmartTranslationResolver {
         return .manualInput
     }
 
-    private static func makeClipboardSnapshot() -> RichTextImporter.Payload? {
-        let pasteboard = NSPasteboard.general
-        if Defaults[.captureRichText] {
-            return RichTextImporter.payload(from: pasteboard)
-        }
+    private static func makeClipboardSnapshot() async -> RichTextImporter.Payload? {
+        await ClipboardGrabber.readStable { pasteboard in
+            if Defaults[.captureRichText] {
+                return RichTextImporter.payload(from: pasteboard)
+            }
 
-        guard let plain = pasteboard.string(forType: .string),
-              !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return nil }
-        return RichTextImporter.Payload(rtfd: nil, rtf: nil, html: nil, plain: plain)
+            guard let plain = pasteboard.string(forType: .string),
+                  !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return RichTextImporter.Payload(rtfd: nil, rtf: nil, html: nil, plain: plain)
+        }
     }
 }
