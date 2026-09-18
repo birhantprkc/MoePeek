@@ -5,6 +5,16 @@ import Defaults
 @MainActor
 @Observable
 final class TranslationCoordinator {
+    /// Tells an action entry point whether it should present a new popup.
+    enum ActionOutcome: Sendable, Equatable {
+        case present
+        case preserve
+
+        var shouldPresent: Bool {
+            self == .present
+        }
+    }
+
     /// Overall translation phase.
     enum Phase: Sendable {
         case idle
@@ -47,13 +57,25 @@ final class TranslationCoordinator {
     var isPinned: Bool = false
 
     let registry: TranslationProviderRegistry
-    private let permissionManager: PermissionManager
+    private let permissionManager: any PermissionChecking
+    private let grabSelection: @MainActor () async -> RichSourceDocument?
+    private let captureOCR: @MainActor () async throws -> String
+    private let enabledProviderSlots: @MainActor () -> [any TranslationProvider]
     private var activeTasks: [String: Task<Void, Never>] = [:]
     private var copyFeedbackTask: Task<Void, Never>?
 
-    init(permissionManager: PermissionManager, registry: TranslationProviderRegistry) {
+    init(
+        permissionManager: any PermissionChecking,
+        registry: TranslationProviderRegistry,
+        grabSelection: @escaping @MainActor () async -> RichSourceDocument? = TextSelectionManager.grabSelectedDocument,
+        captureOCR: @escaping @MainActor () async throws -> String = ScreenCaptureOCR.captureAndRecognize,
+        enabledProviderSlots: (@MainActor () -> [any TranslationProvider])? = nil
+    ) {
         self.permissionManager = permissionManager
         self.registry = registry
+        self.grabSelection = grabSelection
+        self.captureOCR = captureOCR
+        self.enabledProviderSlots = enabledProviderSlots ?? { registry.enabledSlots }
     }
 
     // MARK: - Public Actions
@@ -79,24 +101,28 @@ final class TranslationCoordinator {
     }
 
     /// Triggered by keyboard shortcut: grab selected text → translate.
-    func translateSelection() async {
+    @discardableResult
+    func translateSelection() async -> ActionOutcome {
         guard permissionManager.isAccessibilityGranted else {
             phase = .active
             sourceText = ""
             globalError = String(localized: "Accessibility permission not granted. Open Settings to enable it.")
-            return
+            return .present
         }
 
+        let previousPhase = phase
         phase = .grabbing
 
-        guard let document = await TextSelectionManager.grabSelectedDocument() else {
-            phase = .active
-            sourceText = ""
-            globalError = String(localized: "No text selected. Select some text and try again.")
-            return
+        guard let document = await grabSelection(),
+              !document.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !Task.isCancelled
+        else {
+            phase = previousPhase
+            return .preserve
         }
 
         translate(document: document)
+        return .present
     }
 
     /// Triggered by the floating icon, which already holds the plain selection. With rich
@@ -111,26 +137,37 @@ final class TranslationCoordinator {
     }
 
     /// Triggered by OCR shortcut: screen capture → OCR → translate.
-    func ocrAndTranslate() async {
+    @discardableResult
+    func ocrAndTranslate() async -> ActionOutcome {
         guard permissionManager.isScreenRecordingGranted else {
             phase = .active
             sourceText = ""
             globalError = String(localized: "Screen recording permission not granted. Open Settings to enable it.")
-            return
+            return .present
         }
 
         let previousPhase = phase
         phase = .grabbing
 
         do {
-            let text = try await ScreenCaptureOCR.captureAndRecognize()
+            let text = try await captureOCR()
+            guard !Task.isCancelled else {
+                phase = previousPhase
+                return .preserve
+            }
             translate(text)
+            return .present
         } catch OCRError.captureCancelled {
             phase = previousPhase
+            return .preserve
+        } catch is CancellationError {
+            phase = previousPhase
+            return .preserve
         } catch {
             phase = .active
             sourceText = ""
             globalError = String(localized: "OCR failed: \(error.localizedDescription)")
+            return .present
         }
     }
 
@@ -218,7 +255,7 @@ final class TranslationCoordinator {
         targetLanguage = resolveTargetLanguage(detected: detectedLanguage)
         phase = .active
 
-        let providers = registry.enabledSlots
+        let providers = enabledProviderSlots()
         activeSlots = providers
         translationGeneration += 1
         guard !providers.isEmpty else {

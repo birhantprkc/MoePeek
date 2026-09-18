@@ -1,0 +1,184 @@
+import Foundation
+import SwiftUI
+import Testing
+@testable import MoePeek
+
+@MainActor
+@Suite struct TranslationCoordinatorTests {
+    @Test func missingSelectionPreservesIdleWithoutShowingAnError() async {
+        let coordinator = makeCoordinator(grabSelection: { nil })
+
+        let outcome = await coordinator.translateSelection()
+
+        #expect(outcome == .preserve)
+        #expect(!outcome.shouldPresent)
+        expectIdle(coordinator)
+        #expect(coordinator.globalError == nil)
+        #expect(coordinator.sourceText.isEmpty)
+    }
+
+    @Test func blankSelectionPreservesIdleWithoutShowingAnError() async {
+        let coordinator = makeCoordinator(grabSelection: { .plain(" \n\t") })
+
+        let outcome = await coordinator.translateSelection()
+
+        #expect(outcome == .preserve)
+        #expect(!outcome.shouldPresent)
+        expectIdle(coordinator)
+        #expect(coordinator.globalError == nil)
+    }
+
+    @Test func cancelledOCRPreservesIdleWithoutShowingAnError() async {
+        let coordinator = makeCoordinator(captureOCR: { throw OCRError.captureCancelled })
+
+        let outcome = await coordinator.ocrAndTranslate()
+
+        #expect(outcome == .preserve)
+        #expect(!outcome.shouldPresent)
+        expectIdle(coordinator)
+        #expect(coordinator.globalError == nil)
+    }
+
+    @Test func cancelledOCRPreservesExistingResultAndAttachments() async {
+        let coordinator = makeCoordinator(captureOCR: { throw OCRError.captureCancelled })
+        let attachment = SourceImageAttachment(id: "img-1", data: Data([1, 2, 3]))
+        let document = RichSourceDocument(
+            markdown: "existing source",
+            attachments: [attachment.id: attachment]
+        )
+
+        coordinator.translate(document: document)
+        for _ in 0 ..< 100 where !coordinator.hasAnyResult {
+            await Task.yield()
+        }
+
+        #expect(coordinator.hasAnyResult)
+        let sourceText = coordinator.sourceText
+        let sourceAttachments = coordinator.sourceAttachments
+        let providerStates = coordinator.providerStates
+
+        let missingSelectionOutcome = await coordinator.translateSelection()
+
+        #expect(missingSelectionOutcome == .preserve)
+        #expect(!missingSelectionOutcome.shouldPresent)
+        expectActive(coordinator)
+        #expect(coordinator.sourceText == sourceText)
+        #expect(coordinator.sourceAttachments == sourceAttachments)
+        #expect(coordinator.providerStates == providerStates)
+        #expect(coordinator.globalError == nil)
+
+        let cancelledOCROutcome = await coordinator.ocrAndTranslate()
+
+        #expect(cancelledOCROutcome == .preserve)
+        #expect(!cancelledOCROutcome.shouldPresent)
+        expectActive(coordinator)
+        #expect(coordinator.sourceText == sourceText)
+        #expect(coordinator.sourceAttachments == sourceAttachments)
+        #expect(coordinator.providerStates == providerStates)
+        #expect(coordinator.globalError == nil)
+    }
+
+    @Test func permissionErrorsRemainPresentable() async {
+        let selectionCoordinator = makeCoordinator(accessibilityGranted: false)
+        let selectionOutcome = await selectionCoordinator.translateSelection()
+
+        #expect(selectionOutcome.shouldPresent)
+        expectActive(selectionCoordinator)
+        #expect(selectionCoordinator.globalError != nil)
+
+        let ocrCoordinator = makeCoordinator(screenRecordingGranted: false)
+        let ocrOutcome = await ocrCoordinator.ocrAndTranslate()
+
+        #expect(ocrOutcome.shouldPresent)
+        expectActive(ocrCoordinator)
+        #expect(ocrCoordinator.globalError != nil)
+    }
+
+    @Test func OCRReadAndRecognitionErrorsRemainPresentable() async {
+        let readFailureCoordinator = makeCoordinator(captureOCR: { throw OCRError.captureReadFailed })
+        let readFailureOutcome = await readFailureCoordinator.ocrAndTranslate()
+
+        #expect(readFailureOutcome.shouldPresent)
+        expectActive(readFailureCoordinator)
+        #expect(readFailureCoordinator.globalError != nil)
+
+        let recognitionFailureCoordinator = makeCoordinator(captureOCR: { throw OCRError.noTextRecognized })
+        let recognitionFailureOutcome = await recognitionFailureCoordinator.ocrAndTranslate()
+
+        #expect(recognitionFailureOutcome.shouldPresent)
+        expectActive(recognitionFailureCoordinator)
+        #expect(recognitionFailureCoordinator.globalError != nil)
+    }
+
+    private func makeCoordinator(
+        accessibilityGranted: Bool = true,
+        screenRecordingGranted: Bool = true,
+        grabSelection: @escaping @MainActor () async -> RichSourceDocument? = { nil },
+        captureOCR: @escaping @MainActor () async throws -> String = { throw OCRError.captureCancelled }
+    ) -> TranslationCoordinator {
+        let provider = TestTranslationProvider()
+        let registry = TranslationProviderRegistry(providers: [provider])
+        let permissions = TestPermissionManager(
+            accessibilityGranted: accessibilityGranted,
+            screenRecordingGranted: screenRecordingGranted
+        )
+
+        return TranslationCoordinator(
+            permissionManager: permissions,
+            registry: registry,
+            grabSelection: grabSelection,
+            captureOCR: captureOCR,
+            enabledProviderSlots: { [provider] }
+        )
+    }
+
+    private func expectIdle(_ coordinator: TranslationCoordinator) {
+        guard case .idle = coordinator.phase else {
+            Issue.record("Expected an idle coordinator phase")
+            return
+        }
+    }
+
+    private func expectActive(_ coordinator: TranslationCoordinator) {
+        guard case .active = coordinator.phase else {
+            Issue.record("Expected an active coordinator phase")
+            return
+        }
+    }
+}
+
+@MainActor
+private final class TestPermissionManager: PermissionChecking {
+    let isAccessibilityGranted: Bool
+    let isScreenRecordingGranted: Bool
+
+    init(accessibilityGranted: Bool, screenRecordingGranted: Bool) {
+        isAccessibilityGranted = accessibilityGranted
+        isScreenRecordingGranted = screenRecordingGranted
+    }
+}
+
+private struct TestTranslationProvider: TranslationProvider {
+    let id = "openai"
+    let displayName = "Test provider"
+    let iconSystemName = "globe"
+    let supportsStreaming = false
+    let isAvailable = true
+
+    @MainActor var isConfigured: Bool { true }
+
+    func translateStream(
+        _: String,
+        from _: String?,
+        to _: String
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield("translated")
+            continuation.finish()
+        }
+    }
+
+    @MainActor func makeSettingsView() -> AnyView {
+        AnyView(EmptyView())
+    }
+}

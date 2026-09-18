@@ -40,9 +40,10 @@ struct MenuItemView: View {
                   let panelController = appDelegate.panelController else { return }
             appDelegate.cancelSmartTranslation()
             Task {
-                await coordinator.ocrAndTranslate()
-                if case .idle = coordinator.phase { return }
-                panelController.showAtCursor()
+                let outcome = await coordinator.ocrAndTranslate()
+                if outcome.shouldPresent {
+                    panelController.showAtCursor()
+                }
             }
         } label: {
             Label("Screenshot OCR", systemImage: "text.viewfinder")
@@ -54,8 +55,10 @@ struct MenuItemView: View {
                   let panelController = appDelegate.panelController else { return }
             appDelegate.cancelSmartTranslation()
             Task {
-                await coordinator.translateSelection()
-                panelController.showAtCursor()
+                let outcome = await coordinator.translateSelection()
+                if outcome.shouldPresent {
+                    panelController.showAtCursor()
+                }
             }
         } label: {
             Label("Selection Translation", systemImage: "text.cursor")

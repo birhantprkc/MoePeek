@@ -273,9 +273,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.cancelSmartTranslation()
             Task { @MainActor in
-                await self.coordinator.translateSelection()
-                if case .idle = self.coordinator.phase { return }
-                self.panelController.showAtCursor()
+                let outcome = await self.coordinator.translateSelection()
+                if outcome.shouldPresent {
+                    self.panelController.showAtCursor()
+                }
             }
         }
 
@@ -283,9 +284,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             self.cancelSmartTranslation()
             Task { @MainActor in
-                await self.coordinator.ocrAndTranslate()
-                if case .idle = self.coordinator.phase { return }
-                self.panelController.showAtCursor()
+                let outcome = await self.coordinator.ocrAndTranslate()
+                if outcome.shouldPresent {
+                    self.panelController.showAtCursor()
+                }
             }
         }
 
