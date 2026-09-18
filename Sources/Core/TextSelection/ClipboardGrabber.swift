@@ -64,18 +64,22 @@ enum ClipboardGrabber {
         }
         defer { if let keyMonitor { NSEvent.removeMonitor(keyMonitor) } }
 
+        guard !Task.isCancelled else { return nil }
         simulateCopy()
 
-        // Wait for clipboard to update
+        // Once ⌘C has been emitted, cancellation must not abandon its delayed pasteboard write.
+        // Complete the bounded wait and restoration flow, then suppress the returned value.
         let timeoutMs = Defaults[.clipboardTimeout]
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
-
-        while pasteboard.changeCount == previousCount, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(20))
-        }
+        let didChange = await waitForPasteboardChange(
+            previousCount: previousCount,
+            deadline: deadline,
+            changeCount: { pasteboard.changeCount },
+            wait: { await sleepIgnoringCancellation(for: .milliseconds(20)) }
+        )
 
         // If changeCount didn't change, ⌘C copied nothing — don't return stale clipboard content
-        guard pasteboard.changeCount != previousCount else {
+        guard didChange else {
             return nil
         }
 
@@ -88,11 +92,11 @@ enum ClipboardGrabber {
             options: [.urlReadingFileURLsOnly: true]
         )
 
-        let value = isFileSelection ? nil : read(pasteboard)
+        let value = (isFileSelection || Task.isCancelled) ? nil : read(pasteboard)
 
         // 30ms grace period: if the user's real ⌘+C arrives slightly after our polling
         // finishes, the changeCount will bump again.
-        try? await Task.sleep(for: .milliseconds(30))
+        await sleepIgnoringCancellation(for: .milliseconds(30))
 
         let externalModification = pasteboard.changeCount != postCopyCount || userCopied.withLock { $0 }
 
@@ -112,7 +116,26 @@ enum ClipboardGrabber {
         }
         // Otherwise skip restore — preserve the user's clipboard content
 
-        return value
+        return Task.isCancelled ? nil : value
+    }
+
+    @MainActor
+    static func waitForPasteboardChange(
+        previousCount: Int,
+        deadline: Date,
+        changeCount: @MainActor () -> Int,
+        wait: @MainActor () async -> Void
+    ) async -> Bool {
+        while changeCount() == previousCount, Date() < deadline {
+            await wait()
+        }
+        return changeCount() != previousCount
+    }
+
+    private static func sleepIgnoringCancellation(for duration: Duration) async {
+        await Task.detached {
+            try? await Task.sleep(for: duration)
+        }.value
     }
 
     private static func simulateCopy() {

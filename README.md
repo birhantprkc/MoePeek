@@ -28,6 +28,7 @@
 
 **Translation Modes**
 
+- **Smart Translation**: Use selected content first, fall back to the clipboard snapshot captured when invoked, or open manual input when both are empty
 - **Select & Translate**: Select text in any app, get instant translation in a floating panel
 - **OCR Screenshot**: Capture a screen region and translate the recognized text
 - **Clipboard Translation**: Translate whatever's on your clipboard
@@ -86,12 +87,13 @@ On first launch, MoePeek walks you through an onboarding flow to grant the requi
 
 | Action | Shortcut |
 |--------|----------|
+| Smart Translation | Not set |
 | Translate Selection | `⌥ D` |
 | OCR Screenshot | `⌥ S` |
 | Manual Input | `⌥ A` |
 | Clipboard Translation | `⌥ V` |
 
-All shortcuts can be customized in **Settings → General**.
+All shortcuts can be customized in **Settings → General**. Smart Translation is opt-in and never changes existing shortcut bindings; assign it there if you want the unified fallback behavior.
 
 ### PopClip Integration
 

@@ -2568,6 +2568,36 @@
         }
       }
     },
+    "Smart Translation" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智能翻译"
+          }
+        }
+      }
+    },
+    "Smart Translation:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智能翻译："
+          }
+        }
+      }
+    },
+    "Smart Translation has no default shortcut. It uses selected content first, then the clipboard snapshot captured before selection lookup, and opens manual input when both are empty." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "智能翻译默认不绑定快捷键。它会优先使用选中内容，其次使用查找选中内容前保存的剪贴板快照；两者都为空时进入手动输入。"
+          }
+        }
+      }
+    },
     "Source Language" : {
       "extractionState" : "stale",
       "localizations" : {

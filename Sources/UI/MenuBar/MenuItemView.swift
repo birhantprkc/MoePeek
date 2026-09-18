@@ -18,8 +18,16 @@ struct MenuItemView: View {
         Divider()
 
         Button {
+            appDelegate.performSmartTranslation()
+        } label: {
+            Label("Smart Translation", systemImage: "wand.and.stars")
+        }
+        .globalKeyboardShortcut(.smartTranslation)
+
+        Button {
             guard let coordinator = appDelegate.coordinator,
                   let panelController = appDelegate.panelController else { return }
+            appDelegate.cancelSmartTranslation()
             coordinator.prepareInputMode()
             panelController.showAtScreenCenter()
         } label: {
@@ -30,6 +38,7 @@ struct MenuItemView: View {
         Button {
             guard let coordinator = appDelegate.coordinator,
                   let panelController = appDelegate.panelController else { return }
+            appDelegate.cancelSmartTranslation()
             Task {
                 await coordinator.ocrAndTranslate()
                 if case .idle = coordinator.phase { return }
@@ -43,7 +52,8 @@ struct MenuItemView: View {
         Button {
             guard let coordinator = appDelegate.coordinator,
                   let panelController = appDelegate.panelController else { return }
-            Task {
+            Task { @MainActor in
+                await appDelegate.cancelSmartTranslationAndWait()
                 await coordinator.translateSelection()
                 panelController.showAtCursor()
             }
@@ -55,7 +65,8 @@ struct MenuItemView: View {
         Button {
             guard let coordinator = appDelegate.coordinator,
                   let panelController = appDelegate.panelController else { return }
-            Task {
+            Task { @MainActor in
+                await appDelegate.cancelSmartTranslationAndWait()
                 await coordinator.translateClipboard()
                 panelController.showAtCursor()
             }
