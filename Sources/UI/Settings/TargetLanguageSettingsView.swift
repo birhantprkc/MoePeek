@@ -17,7 +17,10 @@ struct TargetLanguageSettingsView: View {
     var body: some View {
         Picker("Translate to:", selection: targetLanguageSelection) {
             ForEach(
-                SupportedLanguages.effectiveTargetCodes(favoriteTargetLanguages),
+                SupportedLanguages.targetPickerCodes(
+                    favoriteTargetLanguages,
+                    selectedTarget: targetLanguage
+                ),
                 id: \.self
             ) { code in
                 Text(displayName(for: code)).tag(code)
@@ -111,7 +114,9 @@ struct TargetLanguageSettingsView: View {
         let remaining = selectedCodes.filter { $0 != code }
         guard !remaining.isEmpty else { return }
         favoriteTargetLanguages = remaining
-        targetLanguage = SupportedLanguages.resolvedTarget(targetLanguage, favoriteCodes: remaining)
+        if targetLanguage == code {
+            targetLanguage = remaining[0]
+        }
     }
 
     private func reconcilePersistedValues() {

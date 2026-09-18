@@ -13,13 +13,16 @@ extension SupportedLanguages {
         return normalized.isEmpty ? defaultTargetCodes : normalized
     }
 
-    /// Keeps a persisted target usable after its language is removed from favorites.
+    /// Favorites control picker visibility, not whether a catalog language can be used.
+    /// Only an unknown persisted target falls back into the configured shortlist.
     static func resolvedTarget(_ target: String, favoriteCodes: [String]) -> String {
+        if codeSet.contains(target) { return target }
+
         let normalized = normalizedTargetCodes(favoriteCodes)
         if normalized.isEmpty {
-            return defaultTargetCodes.contains(target) ? target : "zh-Hans"
+            return "zh-Hans"
         }
-        return normalized.contains(target) ? target : normalized[0]
+        return normalized[0]
     }
 
     /// Keeps a valid swapped source visible without silently adding it to favorites.
@@ -31,8 +34,8 @@ extension SupportedLanguages {
         return available
     }
 
-    /// Auto-flips to the first favorite outside the detected language family.
-    /// With the default list this preserves the existing English/Chinese behavior.
+    /// Preserves the legacy English/Chinese fallback when it is a favorite, then
+    /// uses the first favorite outside the detected language family.
     static func resolvedTarget(
         _ target: String,
         detectedLanguage: String?,
@@ -43,6 +46,11 @@ extension SupportedLanguages {
         guard let detectedLanguage,
               sameLanguage(detectedLanguage, preferred)
         else { return preferred }
+
+        let legacyFallback = detectedLanguage.hasPrefix("zh") ? "en" : "zh-Hans"
+        if available.contains(legacyFallback) {
+            return legacyFallback
+        }
 
         return available.first { !sameLanguage($0, detectedLanguage) } ?? preferred
     }

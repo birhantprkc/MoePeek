@@ -22,10 +22,11 @@ import Testing
         #expect(SupportedLanguages.effectiveTargetCodes(["unknown"]) == SupportedLanguages.defaultTargetCodes)
     }
 
-    @Test func resolvesRemovedAndUnknownTargetsInsideFavorites() {
-        #expect(SupportedLanguages.resolvedTarget("pl", favoriteCodes: ["es", "en"]) == "es")
-        #expect(SupportedLanguages.resolvedTarget("pl", favoriteCodes: ["es", "zh-Hans", "en"]) == "es")
+    @Test func preservesCatalogTargetsOutsideFavoritesAndResolvesUnknownValues() {
+        #expect(SupportedLanguages.resolvedTarget("pl", favoriteCodes: ["es", "en"]) == "pl")
+        #expect(SupportedLanguages.resolvedTarget("pl", favoriteCodes: ["es", "zh-Hans", "en"]) == "pl")
         #expect(SupportedLanguages.resolvedTarget("unknown", favoriteCodes: []) == "zh-Hans")
+        #expect(SupportedLanguages.resolvedTarget("unknown", favoriteCodes: ["es", "en"]) == "es")
         #expect(SupportedLanguages.resolvedTarget("pl", favoriteCodes: ["en", "pl"]) == "pl")
     }
 
@@ -56,6 +57,44 @@ import Testing
             detectedLanguage: "pl",
             favoriteCodes: ["pl"]
         ) == "pl")
+    }
+
+    @Test func autoFlipPrefersLegacyFallbackBeforeFavoriteOrder() {
+        #expect(SupportedLanguages.resolvedTarget(
+            "fr",
+            detectedLanguage: "fr",
+            favoriteCodes: SupportedLanguages.defaultTargetCodes
+        ) == "zh-Hans")
+        #expect(SupportedLanguages.resolvedTarget(
+            "ja",
+            detectedLanguage: "ja",
+            favoriteCodes: SupportedLanguages.defaultTargetCodes
+        ) == "zh-Hans")
+        #expect(SupportedLanguages.resolvedTarget(
+            "zh-Hant",
+            detectedLanguage: "zh-Hans",
+            favoriteCodes: SupportedLanguages.defaultTargetCodes
+        ) == "en")
+        #expect(SupportedLanguages.resolvedTarget(
+            "fr",
+            detectedLanguage: "fr",
+            favoriteCodes: ["pl", "es", "fr"]
+        ) == "pl")
+    }
+
+    @Test func explicitSwappedTargetOutsideFavoritesRemainsSelectableAndResolved() {
+        let favorites = ["en", "pl"]
+        let swappedTarget = "de"
+
+        #expect(SupportedLanguages.targetPickerCodes(
+            favorites,
+            selectedTarget: swappedTarget
+        ) == ["en", "pl", "de"])
+        #expect(SupportedLanguages.resolvedTarget(
+            swappedTarget,
+            detectedLanguage: "pl",
+            favoriteCodes: favorites
+        ) == swappedTarget)
     }
 
     @Test func expandedLanguagesHaveProviderAndLLMNames() {
