@@ -78,6 +78,92 @@ import Testing
         #expect(coordinator.globalError == nil)
     }
 
+    @Test func staleSelectionDoesNotRestoreOverNewInputSession() async {
+        var finishGrab: CheckedContinuation<RichSourceDocument?, Never>?
+        let coordinator = makeCoordinator(
+            grabSelection: {
+                await withCheckedContinuation { continuation in
+                    finishGrab = continuation
+                }
+                return nil
+            }
+        )
+
+        let staleTask = Task { @MainActor in
+            await coordinator.translateSelection()
+        }
+
+        for _ in 0 ..< 100 where finishGrab == nil {
+            await Task.yield()
+        }
+        guard let finishGrab else {
+            Issue.record("Selection grab did not reach its continuation")
+            staleTask.cancel()
+            _ = await staleTask.value
+            return
+        }
+
+        coordinator.prepareInputMode()
+        coordinator.translate("new translation")
+        for _ in 0 ..< 100 where !coordinator.hasAnyResult {
+            await Task.yield()
+        }
+        #expect(coordinator.hasAnyResult)
+        let newSourceText = coordinator.sourceText
+        let newProviderStates = coordinator.providerStates
+
+        finishGrab.resume(returning: nil)
+        let outcome = await staleTask.value
+
+        #expect(outcome == .preserve)
+        expectActive(coordinator)
+        #expect(coordinator.sourceText == newSourceText)
+        #expect(coordinator.providerStates == newProviderStates)
+    }
+
+    @Test func staleOCRCancellationDoesNotRestoreOverNewInputSession() async {
+        var finishOCR: CheckedContinuation<String, Error>?
+        let coordinator = makeCoordinator(
+            captureOCR: {
+                try await withCheckedThrowingContinuation { continuation in
+                    finishOCR = continuation
+                }
+                return "unreachable"
+            }
+        )
+
+        let staleTask = Task { @MainActor in
+            await coordinator.ocrAndTranslate()
+        }
+
+        for _ in 0 ..< 100 where finishOCR == nil {
+            await Task.yield()
+        }
+        guard let finishOCR else {
+            Issue.record("OCR capture did not reach its continuation")
+            staleTask.cancel()
+            _ = await staleTask.value
+            return
+        }
+
+        coordinator.prepareInputMode()
+        coordinator.translate("new translation")
+        for _ in 0 ..< 100 where !coordinator.hasAnyResult {
+            await Task.yield()
+        }
+        #expect(coordinator.hasAnyResult)
+        let newSourceText = coordinator.sourceText
+        let newProviderStates = coordinator.providerStates
+
+        finishOCR.resume(throwing: OCRError.captureCancelled)
+        let outcome = await staleTask.value
+
+        #expect(outcome == .preserve)
+        expectActive(coordinator)
+        #expect(coordinator.sourceText == newSourceText)
+        #expect(coordinator.providerStates == newProviderStates)
+    }
+
     @Test func permissionErrorsRemainPresentable() async {
         let selectionCoordinator = makeCoordinator(accessibilityGranted: false)
         let selectionOutcome = await selectionCoordinator.translateSelection()

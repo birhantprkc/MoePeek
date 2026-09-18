@@ -61,6 +61,8 @@ final class TranslationCoordinator {
     private let grabSelection: @MainActor () async -> RichSourceDocument?
     private let captureOCR: @MainActor () async throws -> String
     private let enabledProviderSlots: @MainActor () -> [any TranslationProvider]
+    /// Invalidates capture actions that are still awaiting a result when a newer session starts.
+    private var actionToken = 0
     private var activeTasks: [String: Task<Void, Never>] = [:]
     private var copyFeedbackTask: Task<Void, Never>?
 
@@ -103,6 +105,7 @@ final class TranslationCoordinator {
     /// Triggered by keyboard shortcut: grab selected text → translate.
     @discardableResult
     func translateSelection() async -> ActionOutcome {
+        let requestToken = beginAction()
         guard permissionManager.isAccessibilityGranted else {
             phase = .active
             sourceText = ""
@@ -115,10 +118,10 @@ final class TranslationCoordinator {
 
         guard let document = await grabSelection(),
               !document.markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !Task.isCancelled
+              !Task.isCancelled,
+              requestToken == actionToken
         else {
-            phase = previousPhase
-            return .preserve
+            return preserveAction(requestToken, restoring: previousPhase)
         }
 
         translate(document: document)
@@ -139,6 +142,7 @@ final class TranslationCoordinator {
     /// Triggered by OCR shortcut: screen capture → OCR → translate.
     @discardableResult
     func ocrAndTranslate() async -> ActionOutcome {
+        let requestToken = beginAction()
         guard permissionManager.isScreenRecordingGranted else {
             phase = .active
             sourceText = ""
@@ -151,19 +155,17 @@ final class TranslationCoordinator {
 
         do {
             let text = try await captureOCR()
-            guard !Task.isCancelled else {
-                phase = previousPhase
-                return .preserve
+            guard !Task.isCancelled, requestToken == actionToken else {
+                return preserveAction(requestToken, restoring: previousPhase)
             }
             translate(text)
             return .present
         } catch OCRError.captureCancelled {
-            phase = previousPhase
-            return .preserve
+            return preserveAction(requestToken, restoring: previousPhase)
         } catch is CancellationError {
-            phase = previousPhase
-            return .preserve
+            return preserveAction(requestToken, restoring: previousPhase)
         } catch {
+            guard requestToken == actionToken else { return .preserve }
             phase = .active
             sourceText = ""
             globalError = String(localized: "OCR failed: \(error.localizedDescription)")
@@ -191,6 +193,7 @@ final class TranslationCoordinator {
 
     /// Reset state and enter input mode (empty source input for manual typing).
     func prepareInputMode() {
+        invalidatePendingAction()
         cancelAll()
         clearCopyFeedback()
         globalError = nil
@@ -219,6 +222,7 @@ final class TranslationCoordinator {
     }
 
     private func startTranslation(_ text: String, attachments: [String: SourceImageAttachment]) {
+        invalidatePendingAction()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             phase = .active
@@ -301,6 +305,7 @@ final class TranslationCoordinator {
     }
 
     func dismiss() {
+        invalidatePendingAction()
         cancelAll()
         clearCopyFeedback()
         phase = .idle
@@ -337,6 +342,21 @@ final class TranslationCoordinator {
     }
 
     // MARK: - Private
+
+    private func beginAction() -> Int {
+        actionToken &+= 1
+        return actionToken
+    }
+
+    private func invalidatePendingAction() {
+        actionToken &+= 1
+    }
+
+    private func preserveAction(_ requestToken: Int, restoring previousPhase: Phase) -> ActionOutcome {
+        guard requestToken == actionToken else { return .preserve }
+        phase = previousPhase
+        return .preserve
+    }
 
     /// Markdown sources go to LLM providers verbatim with a preserve-formatting instruction;
     /// machine translation APIs get plain text because they cannot honor either.
