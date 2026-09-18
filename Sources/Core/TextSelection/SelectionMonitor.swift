@@ -8,7 +8,7 @@ import Defaults
 final class SelectionMonitor {
     var onTextSelected: ((String, CGPoint) -> Void)?
     var onMouseDown: ((CGPoint) -> Void)?
-    var prepareForClipboardAccess: (() async -> Bool)?
+    var shouldSkipClipboardAccess: (() -> Bool)?
 
     nonisolated(unsafe) private var globalMonitor: Any?
     nonisolated(unsafe) private var mouseDownMonitor: Any?
@@ -92,7 +92,7 @@ final class SelectionMonitor {
         grabTask = Task { @MainActor [weak self] in
             // Snapshot clipboard state at mouse-up so we can detect if the user
             // presses ⌘+C during the wait / Tier 1-2 evaluation window.
-            var clipboardCountAtMouseUp = NSPasteboard.general.changeCount
+            let clipboardCountAtMouseUp = NSPasteboard.general.changeCount
 
             // Wait 100ms for the target app to update its AX selection state
             try? await Task.sleep(for: .milliseconds(100))
@@ -123,11 +123,7 @@ final class SelectionMonitor {
 
             // Tier 3 gate: require full mode, exclude Finder
             guard mode == .full, !isFinderFrontmost else { return }
-
-            if await self.prepareForClipboardAccess?() == true {
-                clipboardCountAtMouseUp = NSPasteboard.general.changeCount
-            }
-            guard !Task.isCancelled else { return }
+            guard self.shouldSkipClipboardAccess?() != true else { return }
 
             // Short-circuit before Tier 3: if the clipboard changed since mouse-up,
             // the user already pressed ⌘+C — read directly without simulating another copy.

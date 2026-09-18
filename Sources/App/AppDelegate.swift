@@ -322,9 +322,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Selection Monitor
 
     private func setupSelectionMonitor() {
-        selectionMonitor.prepareForClipboardAccess = { [weak self] in
-            guard let self else { return false }
-            return await self.cancelSmartTranslationAndWait()
+        selectionMonitor.shouldSkipClipboardAccess = { [weak self] in
+            self?.smartTranslationTask != nil
         }
 
         selectionMonitor.onTextSelected = { [weak self] text, point in
