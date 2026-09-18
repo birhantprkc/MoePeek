@@ -5,12 +5,18 @@ import KeyboardShortcuts
 
 // MARK: - Supported Languages
 
-/// Languages available for translation UI and provider checks.
+/// Languages available throughout the app. Individual providers can support a subset.
 enum SupportedLanguages {
-    /// Ordered list of supported language codes.
-    static let codes: [String] = [
+    /// The target list shown before customizable favorites were introduced.
+    /// Keep this order stable so existing users see the same choices by default.
+    static let defaultTargetCodes: [String] = [
         "en", "zh-Hans", "zh-Hant", "ja", "ko",
         "fr", "de", "es", "pt-BR", "ru", "ar", "it", "th", "vi",
+    ]
+
+    /// Complete catalog used by source selection and language detection.
+    static let codes: [String] = defaultTargetCodes + [
+        "pl", "nl", "tr", "uk", "id", "sv",
     ]
 
     /// All supported language codes and their localized display names.
@@ -44,6 +50,12 @@ enum SupportedLanguages {
         "it": "Italian",
         "th": "Thai",
         "vi": "Vietnamese",
+        "pl": "Polish",
+        "nl": "Dutch",
+        "tr": "Turkish",
+        "uk": "Ukrainian",
+        "id": "Indonesian",
+        "sv": "Swedish",
     ]
 
     /// Returns the English full name for a language code (e.g. `zh-Hans` → `Simplified Chinese`).
@@ -51,6 +63,7 @@ enum SupportedLanguages {
     static func englishName(for code: String) -> String {
         englishNames[code] ?? code
     }
+
 }
 
 // MARK: - App Language
@@ -273,6 +286,10 @@ enum SwapLanguagesShortcut {
 
 extension Defaults.Keys {
     static let targetLanguage = Key<String>("targetLanguage", default: "zh-Hans")
+    static let favoriteTargetLanguages = Key<[String]>(
+        "favoriteTargetLanguages",
+        default: SupportedLanguages.defaultTargetCodes
+    )
     static let sourceLanguage = Key<String>("sourceLanguage", default: "auto")
 
     // Enabled translation providers

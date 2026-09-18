@@ -7,12 +7,8 @@ struct DetectionResult: Sendable {
 }
 
 enum LanguageDetector {
-    // Supported NLLanguage list matching SupportedLanguages.all (14 languages)
-    private static let supportedNLLanguages: [NLLanguage] = [
-        .english, .simplifiedChinese, .traditionalChinese, .japanese,
-        .korean, .french, .german, .spanish, .portuguese, .russian,
-        .arabic, .italian, .thai, .vietnamese,
-    ]
+    // Detection always uses the complete catalog, independently of target favorites.
+    private static let supportedNLLanguages = SupportedLanguages.codes.compactMap(bcp47ToNLLanguage)
 
     // Base language weight hints (inspired by Easydict, simplified)
     private static let baseHints: [NLLanguage: Double] = [
@@ -24,6 +20,12 @@ enum LanguageDetector {
         .french: 0.4, .spanish: 0.4, .italian: 0.4,
         .portuguese: 0.3, .german: 0.3, .russian: 0.3,
         .arabic: 0.2, .thai: 0.2, .vietnamese: 0.2,
+        NLLanguage(rawValue: "pl"): 0.2,
+        NLLanguage(rawValue: "nl"): 0.2,
+        NLLanguage(rawValue: "tr"): 0.2,
+        NLLanguage(rawValue: "uk"): 0.2,
+        NLLanguage(rawValue: "id"): 0.2,
+        NLLanguage(rawValue: "sv"): 0.2,
     ]
 
     /// Backward-compatible simple API.

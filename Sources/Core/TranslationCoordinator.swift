@@ -140,7 +140,10 @@ final class TranslationCoordinator {
         sourceText = ""
         sourceAttachments = [:]
         detectedLanguage = nil
-        targetLanguage = Defaults[.targetLanguage]
+        targetLanguage = SupportedLanguages.resolvedTarget(
+            Defaults[.targetLanguage],
+            favoriteCodes: Defaults[.favoriteTargetLanguages]
+        )
         providerStates = [:]
         detectionResult = nil
         activeSlots = []
@@ -370,7 +373,10 @@ final class TranslationCoordinator {
     /// Build language hints (BCP 47 codes) based on user's target/source language preferences.
     /// Likely source languages are inferred from the target language for common translation pairs.
     private func buildLanguageHints() -> [String: Double]? {
-        let target = Defaults[.targetLanguage]
+        let target = SupportedLanguages.resolvedTarget(
+            Defaults[.targetLanguage],
+            favoriteCodes: Defaults[.favoriteTargetLanguages]
+        )
         let source = Defaults[.sourceLanguage]
 
         var hints: [String: Double] = [:]
@@ -400,7 +406,7 @@ final class TranslationCoordinator {
             hints["en", default: 0] += 0.2
             hints["zh-Hans", default: 0] += 0.1
             hints["ja", default: 0] += 0.05
-        case "fr", "de", "es", "it", "pt-BR":
+        case "fr", "de", "es", "it", "pt-BR", "pl", "nl", "tr", "uk", "id", "sv":
             hints["en", default: 0] += 0.2
             hints["fr", default: 0] += 0.05
             hints["de", default: 0] += 0.05
@@ -422,18 +428,11 @@ final class TranslationCoordinator {
     }
 
     private func resolveTargetLanguage(detected: String?) -> String {
-        let preferred = Defaults[.targetLanguage]
-
-        guard let detected else { return preferred }
-
-        if detected.hasPrefix("zh") && preferred.hasPrefix("zh") {
-            return "en"
-        }
-        if detected == preferred {
-            return detected.hasPrefix("zh") ? "en" : "zh-Hans"
-        }
-
-        return preferred
+        SupportedLanguages.resolvedTarget(
+            Defaults[.targetLanguage],
+            detectedLanguage: detected,
+            favoriteCodes: Defaults[.favoriteTargetLanguages]
+        )
     }
 }
 

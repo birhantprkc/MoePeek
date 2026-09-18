@@ -16,6 +16,7 @@ enum LanguageCodeMapping {
         "zh-Hans": "ZH-HANS", "zh-Hant": "ZH-HANT", "en": "EN",
         "ja": "JA", "ko": "KO", "fr": "FR", "de": "DE", "es": "ES",
         "pt-BR": "PT-BR", "ru": "RU", "ar": "AR", "it": "IT",
+        "pl": "PL", "nl": "NL", "tr": "TR", "uk": "UK", "id": "ID", "sv": "SV",
     ]
 
     /// DeepL source language codes (variants stripped, uppercase).
@@ -23,6 +24,7 @@ enum LanguageCodeMapping {
         "zh-Hans": "ZH", "zh-Hant": "ZH", "en": "EN",
         "ja": "JA", "ko": "KO", "fr": "FR", "de": "DE", "es": "ES",
         "pt-BR": "PT", "ru": "RU", "ar": "AR", "it": "IT",
+        "pl": "PL", "nl": "NL", "tr": "TR", "uk": "UK", "id": "ID", "sv": "SV",
     ]
 
     // MARK: - Baidu
