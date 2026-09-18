@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var triggerIconController: TriggerIconController!
     lazy var updaterController = UpdaterController()
     var settingsController: SettingsWindowController!
+    private var smartTranslationTask: Task<Void, Never>?
+    private var smartTranslationTaskID: UUID?
 
     func applicationDidFinishLaunching(_: Notification) {
         applyLanguageOverride()
@@ -75,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   !text.isEmpty
             else { continue }
 
+            cancelSmartTranslation()
             coordinator.translate(text)
             if case .idle = coordinator.phase { continue }
             panelController.showAtCursor()
@@ -99,6 +102,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         migrateV2KeychainToDefaults()
         migrateV3RemovedProviders()
         migrateV4PopupPositionKeys()
+        migrateV5SmartTranslationShortcut()
+    }
+
+    /// V5: Move the existing selection binding to the broader smart action. The established
+    /// selection shortcut name and explicit action remain available for users who want both.
+    private func migrateV5SmartTranslationShortcut() {
+        let migrationKey = "hasMigratedSmartTranslationShortcut"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        if KeyboardShortcuts.getShortcut(for: .smartTranslation) == nil,
+           let selectionShortcut = KeyboardShortcuts.getShortcut(for: .translateSelection) {
+            KeyboardShortcuts.setShortcut(selectionShortcut, for: .smartTranslation)
+            KeyboardShortcuts.setShortcut(nil, for: .translateSelection)
+        }
+
+        UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
     /// V4: Earlier builds of the remember-position feature stored the panel's bottom-left
@@ -228,9 +247,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Shortcuts
 
+    func performSmartTranslation() {
+        cancelSmartTranslation()
+
+        let taskID = UUID()
+        smartTranslationTaskID = taskID
+        smartTranslationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.smartTranslationTaskID == taskID {
+                    self.smartTranslationTask = nil
+                    self.smartTranslationTaskID = nil
+                }
+            }
+
+            let result = await self.coordinator.translateSmart()
+            guard !Task.isCancelled else { return }
+            switch result {
+            case .selection, .clipboard:
+                self.panelController.showAtCursor()
+            case .manualInput:
+                self.panelController.showAtScreenCenter()
+            case .cancelled:
+                break
+            }
+        }
+    }
+
+    func cancelSmartTranslation() {
+        smartTranslationTask?.cancel()
+        smartTranslationTask = nil
+        smartTranslationTaskID = nil
+    }
+
     private func setupShortcuts() {
+        KeyboardShortcuts.onKeyUp(for: .smartTranslation) { [weak self] in
+            self?.performSmartTranslation()
+        }
+
         KeyboardShortcuts.onKeyUp(for: .translateSelection) { [weak self] in
             guard let self else { return }
+            self.cancelSmartTranslation()
             Task { @MainActor in
                 await self.coordinator.translateSelection()
                 if case .idle = self.coordinator.phase { return }
@@ -240,6 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyUp(for: .ocrScreenshot) { [weak self] in
             guard let self else { return }
+            self.cancelSmartTranslation()
             Task { @MainActor in
                 await self.coordinator.ocrAndTranslate()
                 if case .idle = self.coordinator.phase { return }
@@ -249,6 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyUp(for: .inputTranslation) { [weak self] in
             guard let self else { return }
+            self.cancelSmartTranslation()
             Task { @MainActor in
                 self.coordinator.prepareInputMode()
                 self.panelController.showAtScreenCenter()
@@ -257,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         KeyboardShortcuts.onKeyUp(for: .clipboardTranslation) { [weak self] in
             guard let self else { return }
+            self.cancelSmartTranslation()
             Task { @MainActor in
                 await self.coordinator.translateClipboard()
                 self.panelController.showAtCursor()
@@ -279,6 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         triggerIconController.onTranslateRequested = { [weak self] text in
             guard let self else { return }
+            self.cancelSmartTranslation()
             Task { @MainActor in
                 await self.coordinator.translateTriggeredSelection(text)
                 if case .idle = self.coordinator.phase { return }

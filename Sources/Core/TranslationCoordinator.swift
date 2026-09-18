@@ -58,6 +58,26 @@ final class TranslationCoordinator {
 
     // MARK: - Public Actions
 
+    /// Triggered by the smart shortcut: selected content → invocation-time clipboard → manual input.
+    /// Selection capture intentionally runs without an Accessibility permission gate so the
+    /// clipboard and manual-input fallbacks remain available when that permission is missing.
+    @discardableResult
+    func translateSmart() async -> SmartTranslationResult {
+        phase = .grabbing
+        let result = await SmartTranslationResolver.resolve()
+        guard !Task.isCancelled else { return .cancelled }
+
+        switch result {
+        case let .selection(document), let .clipboard(document):
+            translate(document: document)
+        case .manualInput:
+            prepareInputMode()
+        case .cancelled:
+            break
+        }
+        return result
+    }
+
     /// Triggered by keyboard shortcut: grab selected text → translate.
     func translateSelection() async {
         guard permissionManager.isAccessibilityGranted else {

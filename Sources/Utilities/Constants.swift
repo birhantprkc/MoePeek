@@ -146,6 +146,7 @@ enum SettingsTab: String, Defaults.Serializable {
 // MARK: - Keyboard Shortcuts
 
 extension KeyboardShortcuts.Name {
+    static let smartTranslation = Self("smartTranslation")
     static let translateSelection = Self("translateSelection", default: .init(.d, modifiers: .option))
     static let ocrScreenshot = Self("ocrScreenshot", default: .init(.s, modifiers: .option))
     static let inputTranslation = Self("inputTranslation", default: .init(.a, modifiers: .option))
@@ -214,6 +215,7 @@ enum SwapLanguagesShortcut {
     ]
 
     private static let globalShortcutNames: [KeyboardShortcuts.Name] = [
+        .smartTranslation,
         .translateSelection,
         .ocrScreenshot,
         .inputTranslation,

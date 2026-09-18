@@ -48,6 +48,7 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section("Keyboard Shortcuts") {
+                GlobalShortcutRecorder("Smart Translation:", name: .smartTranslation)
                 GlobalShortcutRecorder("Selection Translation:", name: .translateSelection)
                 GlobalShortcutRecorder("Screenshot OCR:", name: .ocrScreenshot)
                 GlobalShortcutRecorder("Manual Translation:", name: .inputTranslation)

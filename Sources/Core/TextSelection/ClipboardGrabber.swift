@@ -71,7 +71,12 @@ enum ClipboardGrabber {
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
 
         while pasteboard.changeCount == previousCount, Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(20))
+            guard !Task.isCancelled else { break }
+            do {
+                try await Task.sleep(for: .milliseconds(20))
+            } catch {
+                break
+            }
         }
 
         // If changeCount didn't change, ⌘C copied nothing — don't return stale clipboard content
@@ -88,11 +93,13 @@ enum ClipboardGrabber {
             options: [.urlReadingFileURLsOnly: true]
         )
 
-        let value = isFileSelection ? nil : read(pasteboard)
+        let value = (isFileSelection || Task.isCancelled) ? nil : read(pasteboard)
 
         // 30ms grace period: if the user's real ⌘+C arrives slightly after our polling
         // finishes, the changeCount will bump again.
-        try? await Task.sleep(for: .milliseconds(30))
+        if !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(30))
+        }
 
         let externalModification = pasteboard.changeCount != postCopyCount || userCopied.withLock { $0 }
 
@@ -112,7 +119,7 @@ enum ClipboardGrabber {
         }
         // Otherwise skip restore — preserve the user's clipboard content
 
-        return value
+        return Task.isCancelled ? nil : value
     }
 
     private static func simulateCopy() {
