@@ -1,6 +1,46 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Ready to translate." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可按需翻译。"
+          }
+        }
+      }
+    },
+    "Starts this provider automatically for every new request. Turn it off to translate only from the result card." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每次新请求都会自动调用此服务。关闭后，仅在结果卡片中点击翻译时调用。"
+          }
+        }
+      }
+    },
+    "Translate" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "翻译"
+          }
+        }
+      }
+    },
+    "Translate automatically" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动翻译"
+          }
+        }
+      }
+    },
     "Nothing to translate after removing images." : {
       "localizations" : {
         "zh-Hans" : {

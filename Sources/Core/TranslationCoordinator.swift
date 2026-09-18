@@ -14,6 +14,7 @@ final class TranslationCoordinator {
 
     /// Per-provider translation state.
     enum ProviderState: Sendable, Equatable {
+        case awaitingUser
         case waiting
         case translating
         case streaming(partial: String)
@@ -209,20 +210,35 @@ final class TranslationCoordinator {
             return
         }
 
-        // Initialize all provider states
+        // Initialize every enabled slot, but only launch providers configured for automatic translation.
         providerStates = [:]
         for provider in providers {
-            providerStates[provider.id] = .waiting
+            providerStates[provider.id] = registry.translatesAutomatically(provider) ? .waiting : .awaitingUser
         }
 
-        for provider in providers {
+        for provider in providers where registry.translatesAutomatically(provider) {
             launchProvider(provider, text: trimmed, from: detectedLanguage, to: targetLanguage)
         }
     }
 
+    /// Start an enabled provider that was left idle for on-demand translation.
+    func translateProvider(_ provider: any TranslationProvider) {
+        guard phase == .active,
+              !sourceText.isEmpty,
+              activeSlots.contains(where: { $0.id == provider.id }),
+              providerStates[provider.id] == .awaitingUser
+        else { return }
+
+        providerStates[provider.id] = .waiting
+        launchProvider(provider, text: sourceText, from: detectedLanguage, to: targetLanguage)
+    }
+
     /// Retry a single provider that previously errored.
     func retryProvider(_ provider: any TranslationProvider) {
-        guard phase == .active, !sourceText.isEmpty else { return }
+        guard phase == .active,
+              !sourceText.isEmpty,
+              providerStates[provider.id]?.isError == true
+        else { return }
         activeTasks[provider.id]?.cancel()
         providerStates[provider.id] = .waiting
         launchProvider(provider, text: sourceText, from: detectedLanguage, to: targetLanguage)
@@ -271,12 +287,12 @@ final class TranslationCoordinator {
         }
     }
 
-    /// Whether all providers have finished (completed or error).
+    /// Whether no provider has active translation work, including untouched on-demand providers.
     var allFinished: Bool {
         guard !providerStates.isEmpty else { return true }
         return providerStates.values.allSatisfy { state in
             switch state {
-            case .completed, .error: return true
+            case .awaitingUser, .completed, .error: return true
             default: return false
             }
         }
@@ -299,9 +315,16 @@ final class TranslationCoordinator {
             providerStates[provider.id] = .error(message: String(localized: "Nothing to translate after removing images."))
             return
         }
+        let generation = translationGeneration
         let task = Task {
             await TranslationRequestContext.$sourceIsMarkdown.withValue(sendsMarkdown) {
-                await runProvider(provider, text: providerText, from: sourceLang, to: targetLang)
+                await runProvider(
+                    provider,
+                    text: providerText,
+                    from: sourceLang,
+                    to: targetLang,
+                    generation: generation
+                )
             }
         }
         activeTasks[provider.id] = task
@@ -311,7 +334,8 @@ final class TranslationCoordinator {
         _ provider: any TranslationProvider,
         text: String,
         from sourceLang: String?,
-        to targetLang: String
+        to targetLang: String,
+        generation: Int
     ) async {
         defer {
             // Only clean up if not cancelled: when retryProvider() replaces a task,
@@ -320,17 +344,18 @@ final class TranslationCoordinator {
                 activeTasks.removeValue(forKey: provider.id)
             }
         }
+        guard !Task.isCancelled, generation == translationGeneration else { return }
         providerStates[provider.id] = .translating
 
         do {
             var accumulated = ""
             for try await chunk in provider.translateStream(text, from: sourceLang, to: targetLang) {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, generation == translationGeneration else { return }
                 accumulated += chunk
                 providerStates[provider.id] = .streaming(partial: accumulated)
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == translationGeneration else { return }
 
             if accumulated.isEmpty {
                 providerStates[provider.id] = .error(message: String(localized: "Translation returned empty result"))
@@ -338,7 +363,7 @@ final class TranslationCoordinator {
                 providerStates[provider.id] = .completed(text: accumulated)
             }
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == translationGeneration else { return }
             providerStates[provider.id] = .error(message: error.localizedDescription)
         }
     }
@@ -443,8 +468,13 @@ private extension TranslationCoordinator.ProviderState {
             partial
         case let .completed(text):
             text
-        case .waiting, .translating, .error:
+        case .awaitingUser, .waiting, .translating, .error:
             nil
         }
+    }
+
+    var isError: Bool {
+        if case .error = self { return true }
+        return false
     }
 }

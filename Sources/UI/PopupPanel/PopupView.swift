@@ -230,6 +230,9 @@ struct PopupView: View {
                                     onCopy: {
                                         coordinator.copyResult(forProviderID: provider.id)
                                     },
+                                    onTranslate: {
+                                        coordinator.translateProvider(provider)
+                                    },
                                     onRetry: {
                                         coordinator.retryProvider(provider)
                                     },

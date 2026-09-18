@@ -6,6 +6,7 @@ struct ServiceSettingsView: View {
     let registry: TranslationProviderRegistry
 
     @Default(.enabledProviders) private var enabledProviders
+    @Default(.onDemandProviderIDs) private var onDemandProviderIDs
     @State private var selectedProviderID: String?
     @State private var showingAddSheet = false
     @State private var providerToDelete: (any TranslationProvider)?
@@ -132,11 +133,31 @@ struct ServiceSettingsView: View {
         if let id = selectedProviderID,
            let provider = registry.provider(withID: id)
         {
-            ScrollView {
-                provider.makeSettingsView()
-                    .id(id)
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Translate automatically")
+                            .font(.headline)
+                        Text("Starts this provider automatically for every new request. Turn it off to translate only from the result card.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Toggle("Translate automatically", isOn: providerAutoTranslateBinding(for: id))
+                        .labelsHidden()
+                }
+                .padding(16)
+
+                Divider()
+
+                ScrollView {
+                    provider.makeSettingsView()
+                        .id(id)
+                }
+                .scrollContentBackground(.hidden)
             }
-            .scrollContentBackground(.hidden)
         } else {
             ContentUnavailableView(
                 "Select a provider",
@@ -168,6 +189,19 @@ struct ServiceSettingsView: View {
                 } else {
                     enabledProviders.remove(id)
                     Defaults[.providerOrder].removeAll { $0 == id }
+                }
+            }
+        )
+    }
+
+    private func providerAutoTranslateBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { !onDemandProviderIDs.contains(id) },
+            set: { translatesAutomatically in
+                if translatesAutomatically {
+                    onDemandProviderIDs.remove(id)
+                } else {
+                    onDemandProviderIDs.insert(id)
                 }
             }
         )

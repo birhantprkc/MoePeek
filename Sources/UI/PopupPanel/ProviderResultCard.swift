@@ -10,6 +10,7 @@ struct ProviderResultCard: View {
     let isCopyFeedbackActive: Bool
     let copyFeedbackGeneration: Int
     var onCopy: (() -> Void)?
+    var onTranslate: (() -> Void)?
     var onRetry: (() -> Void)?
     var attachments: [String: SourceImageAttachment] = [:]
     @State private var isCopyPulsing = false
@@ -98,6 +99,10 @@ struct ProviderResultCard: View {
     @ViewBuilder
     private var statusIndicator: some View {
         switch state {
+        case .awaitingUser:
+            Image(systemName: "play.circle")
+                .font(.system(size: CGFloat(fontSize - 2)))
+                .foregroundStyle(.secondary)
         case .waiting:
             Circle()
                 .fill(.tertiary)
@@ -124,6 +129,24 @@ struct ProviderResultCard: View {
     @ViewBuilder
     private var bodyContent: some View {
         switch state {
+        case .awaitingUser:
+            HStack(spacing: 8) {
+                Text("Ready to translate.")
+                    .font(.popup(name: fontName, size: CGFloat(fontSize)))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if let onTranslate {
+                    Button(action: onTranslate) {
+                        Label("Translate", systemImage: "play.fill")
+                            .font(.popup(name: fontName, size: CGFloat(fontSize - 2)))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.mini)
+                }
+            }
+            .background { InteractiveMarker() }
         case .waiting:
             Text("Waiting…")
                 .font(.popup(name: fontName, size: CGFloat(fontSize)))
