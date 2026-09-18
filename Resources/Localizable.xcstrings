@@ -1,56 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Add Language" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "添加语言"
-          }
-        }
-      }
-    },
-    "Choose and order the languages shown in target-language menus. Source detection still uses the full language catalog." : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择目标语言菜单中显示的语言并调整顺序。源语言检测仍使用完整语言目录。"
-          }
-        }
-      }
-    },
-    "Favorite Target Languages" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "常用目标语言"
-          }
-        }
-      }
-    },
-    "Move Down" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下移"
-          }
-        }
-      }
-    },
-    "Move Up" : {
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上移"
-          }
-        }
-      }
-    },
     "Nothing to translate after removing images." : {
       "localizations" : {
         "zh-Hans" : {
@@ -349,6 +299,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "添加自定义服务"
+          }
+        }
+      }
+    },
+    "Add Language" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加语言"
           }
         }
       }
@@ -695,6 +655,16 @@
         }
       }
     },
+    "Choose and order the languages shown in target-language menus. Source detection still uses the full language catalog." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择目标语言菜单中显示的语言并调整顺序。源语言检测仍使用完整语言目录。"
+          }
+        }
+      }
+    },
     "Choose Image…" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1034,6 +1004,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "保存图片失败：%@"
+          }
+        }
+      }
+    },
+    "Favorite Target Languages" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常用目标语言"
           }
         }
       }
@@ -1515,6 +1495,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "模型名称"
+          }
+        }
+      }
+    },
+    "Move Down" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下移"
+          }
+        }
+      }
+    },
+    "Move Up" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上移"
           }
         }
       }

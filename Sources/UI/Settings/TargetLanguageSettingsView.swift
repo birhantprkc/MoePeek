@@ -1,9 +1,10 @@
+import Defaults
 import SwiftUI
 
 /// Manages the ordered shortlist used by target-language pickers.
 struct TargetLanguageSettingsView: View {
-    @Binding var targetLanguage: String
-    @Binding var favoriteTargetLanguages: [String]
+    @Default(.targetLanguage) private var targetLanguage
+    @Default(.favoriteTargetLanguages) private var favoriteTargetLanguages
 
     private var selectedCodes: [String] {
         SupportedLanguages.normalizedTargetCodes(favoriteTargetLanguages)
@@ -14,6 +15,15 @@ struct TargetLanguageSettingsView: View {
     }
 
     var body: some View {
+        Picker("Translate to:", selection: targetLanguageSelection) {
+            ForEach(
+                SupportedLanguages.effectiveTargetCodes(favoriteTargetLanguages),
+                id: \.self
+            ) { code in
+                Text(displayName(for: code)).tag(code)
+            }
+        }
+
         DisclosureGroup("Favorite Target Languages") {
             VStack(spacing: 6) {
                 ForEach(Array(selectedCodes.enumerated()), id: \.element) { index, code in
@@ -74,6 +84,18 @@ struct TargetLanguageSettingsView: View {
 
     private func displayName(for code: String) -> String {
         Locale.current.localizedString(forIdentifier: code) ?? code
+    }
+
+    private var targetLanguageSelection: Binding<String> {
+        Binding(
+            get: {
+                SupportedLanguages.resolvedTarget(
+                    targetLanguage,
+                    favoriteCodes: favoriteTargetLanguages
+                )
+            },
+            set: { targetLanguage = $0 }
+        )
     }
 
     private func move(_ code: String, by offset: Int) {

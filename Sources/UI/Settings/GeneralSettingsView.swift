@@ -6,8 +6,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct GeneralSettingsView: View {
-    @Default(.targetLanguage) private var targetLanguage
-    @Default(.favoriteTargetLanguages) private var favoriteTargetLanguages
     @Default(.isAutoDetectEnabled) private var isAutoDetectEnabled
     @Default(.textDetectionMode) private var textDetectionMode
     @Default(.triggerActivationMode) private var triggerActivationMode
@@ -119,19 +117,7 @@ struct GeneralSettingsView: View {
             }
 
             Section("Translation") {
-                Picker("Translate to:", selection: targetLanguageSelection) {
-                    ForEach(
-                        SupportedLanguages.effectiveTargetCodes(favoriteTargetLanguages),
-                        id: \.self
-                    ) { code in
-                        Text(Locale.current.localizedString(forIdentifier: code) ?? code).tag(code)
-                    }
-                }
-
-                TargetLanguageSettingsView(
-                    targetLanguage: $targetLanguage,
-                    favoriteTargetLanguages: $favoriteTargetLanguages
-                )
+                TargetLanguageSettingsView()
 
                 Toggle("Show floating icon on text selection", isOn: $isAutoDetectEnabled)
 
@@ -260,18 +246,6 @@ struct GeneralSettingsView: View {
         } message: {
             Text("The uploaded image will be deleted. You can choose another image any time.")
         }
-    }
-
-    private var targetLanguageSelection: Binding<String> {
-        Binding(
-            get: {
-                SupportedLanguages.resolvedTarget(
-                    targetLanguage,
-                    favoriteCodes: favoriteTargetLanguages
-                )
-            },
-            set: { targetLanguage = $0 }
-        )
     }
 
     @ViewBuilder
